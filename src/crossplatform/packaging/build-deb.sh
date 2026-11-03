@@ -51,6 +51,10 @@ if ! command -v dpkg-deb >/dev/null 2>&1; then
     echo "error: dpkg-deb not found. Install with: sudo apt install dpkg-dev" >&2
     exit 1
 fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "error: python3 not found (needed to write the package's copyright file)" >&2
+    exit 1
+fi
 for size in $ICON_SIZES; do
     if [[ ! -f "$ICON_DIR/gitnext-$size.png" ]]; then
         echo "error: icon not found at $ICON_DIR/gitnext-$size.png" >&2
@@ -118,6 +122,17 @@ cp "$SCRIPT_DIR/gitnext.desktop" "$STAGE_DIR/usr/share/applications/gitnext.desk
 for size in $ICON_SIZES; do
     cp "$ICON_DIR/gitnext-$size.png" "$STAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps/gitnext.png"
 done
+
+# Licence and attribution. GPL v3 (section 4) and the MIT/ISC/BSD/OFL terms of
+# the bundled third-party code all ask for their notices to travel with the
+# binaries; a .deb is the binary, so they go in the standard place. The
+# third-party list is generated from the publish's deps.json, and an unknown
+# licence fails the build here rather than shipping unattributed.
+DOC_DIR="$STAGE_DIR/usr/share/doc/gitnext"
+mkdir -p "$DOC_DIR"
+python3 "$SCRIPT_DIR/gen-copyright.py" "$PUBLISH_DIR" "$DOC_DIR/copyright"
+cp "$REPO_ROOT/src/app/GitUI/Resources/Icons/originals/_Icon Sources.txt" "$DOC_DIR/ICON-SOURCES.txt"
+chmod 0644 "$DOC_DIR/copyright" "$DOC_DIR/ICON-SOURCES.txt"
 
 # DEBIAN/control
 cat > "$STAGE_DIR/DEBIAN/control" <<EOF

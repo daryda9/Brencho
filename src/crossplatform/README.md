@@ -309,6 +309,15 @@ Stated plainly, because a README that only lists wins is a sales page:
 reasoned about. `PORTING.md` is the milestone-by-milestone record, `HANDOFF.md`
 the working state.
 
+## License
+
+GPL v3 ([`LICENSE.md`](../../LICENSE.md) at the repository root), inherited from Git
+Extensions: this is a derived work and stays under the same terms. The bundled
+third-party components keep their own licences (MIT, Apache-2.0, BSD-3-Clause, ISC,
+OFL-1.1, CC-BY-3.0 for the Classic icons); the `.deb` lists each one in
+`/usr/share/doc/gitnext/copyright`, generated at build time — see
+[`packaging/README.md`](packaging/README.md).
+
 ---
 
 ## How the reuse works
