@@ -36,7 +36,7 @@ internal static class PathDisplay
             return "~";
         }
 
-        // Only collapse on a real directory boundary, so "/home/dariofoo" is left alone.
+        // Only collapse on a real directory boundary, so "/home/userfoo" is left alone.
         if (path.StartsWith(trimmedHome + "/", StringComparison.Ordinal))
         {
             return "~" + path[trimmedHome.Length..];

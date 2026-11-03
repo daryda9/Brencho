@@ -5026,13 +5026,13 @@ amnistia lasciata: niente quarantene, niente baseline.
 
 ## M184 (2026-08-13, `88a2e0d4c`) — una scheda lunga perde il percorso, mai il nome della repo
 
-Segnalato con screenshot: `pluma_orchestrator/ai-server/core/…`. L'ellissi di fine riga è la regola
+Segnalato con screenshot: `acme_orchestrator/api-server/core/…`. L'ellissi di fine riga è la regola
 sbagliata per un **percorso**: la coda porta l'identità, la testa è solo contesto — e spariva proprio
 il nome della repo.
 
 **Degrado dalla testa verso l'interno.** Il mezzo collassa **un segmento alla volta partendo dal lato
 testa**, perché i segmenti vicini alla foglia sono quelli che la **collocano** e vanno persi per
-ultimi: `pluma_orchestrator/…/core/api` → `pluma_orchestrator/…/api` → `…/ai-server/core/api` →
+ultimi: `acme_orchestrator/…/core/api` → `acme_orchestrator/…/api` → `…/api-server/core/api` →
 `…/core/api` → `…/api`; e solo quando non entra più niente si taglia la foglia stessa
 (`an_extraord…`) — mezzo nome di repo batte nessun nome. I segmenti intermedi **non** sono abbreviati
 all'iniziale (`p…/a…/core/api`): un'iniziale si legge come un nome e invita a espanderla, cioè è
@@ -5040,7 +5040,7 @@ rumore esattamente quando lo spazio manca, mentre un solo `…` è già convenzi
 porta sempre il percorso completo: l'elisione è per lo sguardo, non per l'informazione.
 
 Quale livello si applica è **misurato** con lo stesso typeface, size, weight e style con cui il testo
-verrà disegnato, non contato a caratteri — con un font proporzionale `pluma_orchestrator` e una corsa
+verrà disegnato, non contato a caratteri — con un font proporzionale `acme_orchestrator` e una corsa
 di lettere strette non occupano la stessa larghezza — e viene ricalcolato a ogni cambio di larghezza
 (finestra ridimensionata, scheda che diventa attiva e quindi SemiBold, schede aperte o chiuse).
 
@@ -6988,7 +6988,7 @@ la finestra di grazia è un'attesa, e sul thread UI un'attesa è una finestra co
 
 **Verificato**: `x-terminal-emulator -e bash` esce non-zero e viene saltato; il candidato successivo
 (`gnome-terminal --working-directory <repo> -- bash`) parte e la barra di stato dice «Opened terminal
-in /home/dario/git_ext_mod». Nota sul rig headless: gnome-terminal è client/server, quindi la finestra
+in ~/git_ext_mod». Nota sul rig headless: gnome-terminal è client/server, quindi la finestra
 si apre sul display dove gira **il server**, non su quello Xvfb del test. Build `Avvisi: 0 /
 Errori: 0`, harness navigation snapshot PASS.
 
@@ -8223,7 +8223,7 @@ il click (tunneling in `OnTreePointerPressed`), il ciclo dei match della ricerca
 della selezione dopo un rebuild — e nel sottoalbero appena aperto di un submodule quel flag veniva
 scritto **dietro le spalle del modello**. La selezione successiva deselezionava solo il nodo che il
 modello conosceva: tutti gli altri restavano col fondo blu. Da qui la catena
-`pluma_orchestrator › ai-server › core › graphs` tutta accesa dello screenshot.
+`acme_orchestrator › api-server › core › graphs` tutta accesa dello screenshot.
 
 Ora ogni selezione passa da `SelectOnly(node)`, che azzera il flag su tutti gli altri nodi indicizzati
 prima di accenderlo sul suo (l'iterazione lavora su uno snapshot delle chiavi: assegnare `IsSelected`
@@ -8576,7 +8576,7 @@ livello. Un submodule di un submodule non c'era, e non c'era neanche un modo di 
 
 ### Le tre parti
 1. **Elenco ricorsivo** — `recursive: true` + `git submodule status --recursive`. Entrambi riportano
-   il path **completo dal repo di primo livello** (`pluma_orchestrator/core/graphs/tasks`), quindi le
+   il path **completo dal repo di primo livello** (`acme_orchestrator/core/graphs/tasks`), quindi le
    chiavi delle due fonti combaciano senza normalizzazioni.
 2. **Gerarchia nell'albero** (`AddSubmodulesWithFolders`) — ogni riga si appende al nodo del proprio
    super-project, e un segmento di path che è **solo una directory** (`core`, `graphs`) diventa un
@@ -8594,9 +8594,9 @@ livello. Un submodule di un submodule non c'era, e non c'era neanche un modo di 
 nidificati visibili, l'«Update» del menu li avrebbe passati al repo di primo livello e fallito.
 Provato in chiaro sulla fixture:
 ```
-$ git -C top          submodule update --init -- pluma_orchestrator/core/graphs/tasks   → exit 1
+$ git -C top          submodule update --init -- acme_orchestrator/core/graphs/tasks   → exit 1
   error: pathspec '...' did not match any file known to git
-$ git -C top/pluma_orchestrator submodule update --init -- core/graphs/tasks            → exit 0
+$ git -C top/acme_orchestrator submodule update --init -- core/graphs/tasks            → exit 0
 ```
 Quindi `SubmoduleRow` porta ora `ParentPath` (il repo che **dichiara** il submodule) e
 `PathInParent`, e `Update`/`UpdateMerge` hanno un overload che prende la riga e gira nel posto
@@ -8610,14 +8610,14 @@ livello, sopra ai due che il servizio già lancia): si legge il file `HEAD`. Il 
 come `SubmoduleNode.BranchText`.
 
 ### Verifica GUI (Xvfb `:217`, fixture `/tmp/nsub` a tre livelli reali)
-- `Submodules (3)` con dentro `pluma-UI (develop)` e `pluma_orchestrator (develop)`, e sotto
+- `Submodules (3)` con dentro `acme-UI (develop)` e `acme_orchestrator (develop)`, e sotto
   quest'ultimo la catena `core` → `graphs` → `tasks (no branch)`: **la stessa forma dello screenshot
   dell'originale**.
 - Doppio clic su `tasks` → titolo finestra `tasks - Git Extensions`, path bar
-  `/tmp/nsub/top/pluma_orchestrator/core/graphs/tasks`, statusline `(detached HEAD)`, 1 commit.
+  `/tmp/nsub/top/acme_orchestrator/core/graphs/tasks`, statusline `(detached HEAD)`, 1 commit.
 - Primo tentativo **sbagliato e corretto misurando**: appendevo al nodo del super-project
   (`Host(row.ParentPath)`), e `core`/`graphs` **spariva**no — `tasks` compariva direttamente sotto
-  `pluma_orchestrator`. L'host giusto è la **dirname del path completo**.
+  `acme_orchestrator`. L'host giusto è la **dirname del path completo**.
 
 ## ROUND 13 — GUI moderna — iterazione 1: M79 (2026-08-02)
 
@@ -10230,8 +10230,8 @@ colonna build status.
   giusta. Non sovrascrive una home impostata deliberatamente dall'utente.
   Aggiunte due diagnostiche permanenti a `--selftest`: `[11]` HOME effettivo per i git
   figli, `[12]` `credential.helper` risolto. Prova A/B con quelle:
-  senza fix → `HOME=/home/dario/Documents`, helper `<none>`; con fix →
-  `HOME=/home/dario`, helper `git-credential-libsecret`. Commit `f1caa6512`.
+  senza fix → `HOME=/home/user/Documents`, helper `<none>`; con fix →
+  `HOME=/home/user`, helper `git-credential-libsecret`. Commit `f1caa6512`.
 
 - **M43** (bugfix post-blocco, 2026-07-27) — **Fetch/Pull bloccavano la GUI**.
   `RemoteService.ListRemotes` fa sync-over-async (`GetRemotesAsync().GetAwaiter().GetResult()`)

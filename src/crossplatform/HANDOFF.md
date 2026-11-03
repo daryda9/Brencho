@@ -151,7 +151,7 @@ commit del subagent aveva parent corretto.
 DLL="$(find bin -name GitExtensions.Avalonia.dll | head -1)"
 xvfb-run -a --server-args="-screen 0 1400x900x24 +extension XINPUTEXTENSION" bash -c '
   python3 <scratchpad>/miniwm.py >/dev/null 2>&1 &        # serve per i MODALI
-  dotnet "$DLL" /home/dario/git_ext_mod >/tmp/gui.log 2>&1 &
+  dotnet "$DLL" ~/git_ext_mod >/tmp/gui.log 2>&1 &
   APP=$!; sleep 13
   python3 <scratchpad>/click.py                            # click sintetici
   import -window root out.png
@@ -1006,10 +1006,10 @@ Le due cose che un giro nuovo può prendere, in ordine di costo:
 Prompt da incollare in una chat nuova:
 
 ```
-Riprendi il port Linux/Avalonia di Git Extensions in /home/dario/git_ext_mod/src/crossplatform.
+Riprendi il port Linux/Avalonia di Git Extensions in ~/git_ext_mod/src/crossplatform.
 
 PRIMA DI TUTTO, in quest'ordine:
-1. git -C /home/dario/git_ext_mod rev-parse --short HEAD  (atteso 82b0e901c o piu' avanti; se diverso,
+1. git -C ~/git_ext_mod rev-parse --short HEAD  (atteso 82b0e901c o piu' avanti; se diverso,
    fidati del repo e non di questo prompt)
 2. leggi src/crossplatform/HANDOFF.md sezioni 1, 3, 4 e 5 (§3 sono le trappole, §4 e' cosa resta)
 3. leggi src/crossplatform/ROADMAP.md, la tabella "Residui ancora aperti"

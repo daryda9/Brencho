@@ -13,7 +13,7 @@ namespace GitExtensions.Avalonia.Services;
 /// <param name="Path">
 ///  Local path of the submodule relative to the TOP-level super-project, in posix form.
 ///  For a submodule of a submodule this is the whole chain
-///  (<c>ai-server/core/graphs/tasks</c>), which is what <c>git submodule status
+///  (<c>api-server/core/graphs/tasks</c>), which is what <c>git submodule status
 ///  --recursive</c> and <see cref="GitModule.GetSubmodulesLocalPaths(bool)"/> report.
 /// </param>
 /// <param name="ShortSha">Abbreviated commit the submodule is checked out at, or empty when unknown.</param>

@@ -1326,18 +1326,18 @@ public sealed class RepoTabStrip : UserControl
     ///  A one-line label for a path-shaped tab title, which shortens from the MIDDLE.
     ///
     ///  <para><b>Why not <see cref="TextTrimming.CharacterEllipsis"/>.</b> The strip's
-    ///  labels are paths — <c>pluma_orchestrator/ai-server/core/api</c> — and an ordinary
+    ///  labels are paths — <c>acme_orchestrator/api-server/core/api</c> — and an ordinary
     ///  end ellipsis cuts exactly the segment that identifies the tab, leaving
-    ///  <c>pluma_orchestrator/ai-server/co…</c>: the part every sibling tab shares is kept
+    ///  <c>acme_orchestrator/api-server/co…</c>: the part every sibling tab shares is kept
     ///  and the part that tells them apart is thrown away. So the LAST segment is never
     ///  touched, and the prefix is what pays.</para>
     ///
     ///  <para><b>The order of degradation</b>, each step used only when the one before it
     ///  does not fit the width the tab was actually given:</para>
     ///  <list type="number">
-    ///   <item><description><c>pluma_orchestrator/ai-server/core/api</c> — all of it;</description></item>
-    ///   <item><description><c>pluma_orchestrator/…/core/api</c>, then
-    ///     <c>pluma_orchestrator/…/api</c> — the head is kept and the middle collapses one
+    ///   <item><description><c>acme_orchestrator/api-server/core/api</c> — all of it;</description></item>
+    ///   <item><description><c>acme_orchestrator/…/core/api</c>, then
+    ///     <c>acme_orchestrator/…/api</c> — the head is kept and the middle collapses one
     ///     segment at a time, nearest the head first, because the segments next to the
     ///     leaf are the ones that place it;</description></item>
     ///   <item><description><c>…/core/api</c>, then <c>…/api</c> — the head goes too;</description></item>
@@ -1370,7 +1370,7 @@ public sealed class RepoTabStrip : UserControl
     ///  a leading neutral in an LTR paragraph resolves to the paragraph direction.</para>
     ///
     ///  <para>Every candidate is MEASURED with the same typeface, size, weight and style
-    ///  the text is drawn with — <c>pluma_orchestrator</c> and <c>iiiiiiiiiiiiiiiii</c> are
+    ///  the text is drawn with — <c>acme_orchestrator</c> and <c>iiiiiiiiiiiiiiiii</c> are
     ///  the same seventeen characters and nothing like the same width — and it is measured
     ///  against <see cref="Visual.Bounds"/>, so the answer follows the tab through a
     ///  window resize, a neighbour opening or closing, and the weight change that comes
