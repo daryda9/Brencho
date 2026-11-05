@@ -170,7 +170,7 @@ public sealed class MainWindow : Theming.ZoomWindow
     // grid event's kind rather than re-derived from the hash.
     private ArtificialDiff _artificialWhich;
 
-    private const string DefaultTitle = "gitNext";
+    private const string DefaultTitle = "Brencho";
 
     // Which commit each lazily-loaded bottom tab is currently showing; null = stale.
     private string? _detailLoadedFor;

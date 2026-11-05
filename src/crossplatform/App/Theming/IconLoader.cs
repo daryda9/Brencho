@@ -19,7 +19,7 @@ namespace GitExtensions.Avalonia.Theming;
 public static class IconLoader
 {
     // The assembly name is asked at run time rather than written down. A literal
-    // survived the rename to GitNext only because Avalonia falls back to the entry
+    // survived the rename to Brencho only because Avalonia falls back to the entry
     // assembly when the host of an avares: URI names no loaded assembly — and that
     // fallback did NOT cover the one asset added under the new name, which is how
     // the window icon went missing with every other icon still resolving.

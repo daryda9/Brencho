@@ -1047,7 +1047,7 @@ public sealed class DashboardView : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        if (IconLoader.Load("GitNext") is { } mark)
+        if (IconLoader.Load("Brencho") is { } mark)
         {
             row.Children.Add(new Image
             {
@@ -1062,7 +1062,7 @@ public sealed class DashboardView : UserControl
         // stops identifying the program (upstream marks its own copy _NO_TRANSLATE_).
         row.Children.Add(new TextBlock
         {
-            Text = "gitNext",
+            Text = "Brencho",
             Foreground = B("App.Text"),
             FontSize = 26,
             FontWeight = FontWeight.SemiBold,

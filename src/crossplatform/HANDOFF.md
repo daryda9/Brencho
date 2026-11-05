@@ -1047,8 +1047,8 @@ AMBIENTE:
   Per i sottomenu in fondo alla finestra: schermo Xvfb piu' alto (1400x1250) + resize della finestra.
 - lo stato dei run CI si legge da anonimo: curl api.github.com/repos/daryda9/gitextensions/actions/runs
   (i log grezzi invece vogliono un token)
-- il prodotto e' gitNext: dll GitNext.dll, comando gitnext, WM_CLASS GitNext (deve combaciare con
-  StartupWMClass in packaging/gitnext.desktop). Namespace ancora GitExtensions.Avalonia: NON rinominarlo
+- il prodotto e' Brencho (era gitNext fino a M229, rinominato per la policy sul marchio Git): dll Brencho.dll, comando brencho, WM_CLASS Brencho (deve combaciare con
+  StartupWMClass in packaging/brencho.desktop). Namespace ancora GitExtensions.Avalonia: NON rinominarlo
 - l'app scrive le sue impostazioni in una cartella col nome del prodotto accanto ai sorgenti: e' in
   .gitignore dal M223, non committarla
 

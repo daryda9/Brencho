@@ -2,14 +2,14 @@
 # Build a reproducible Debian .deb for the Linux/Avalonia port of Git Extensions.
 #
 # Produces a self-contained package (no .NET SDK/runtime required on the target
-# machine) that installs to /opt/gitnext with a /usr/bin/gitnext
+# machine) that installs to /opt/brencho with a /usr/bin/brencho
 # launcher, a .desktop entry and an application icon.
 #
 # Usage:
 #   ./build-deb.sh
 #
 # Output:
-#   packaging/out/gitnext_<version>_amd64.deb
+#   packaging/out/brencho_<version>_amd64.deb
 set -euo pipefail
 
 # --- Locations ---------------------------------------------------------------
@@ -22,9 +22,9 @@ OUT_DIR="$SCRIPT_DIR/out"
 PUBLISH_DIR="$OUT_DIR/publish"
 STAGE_DIR="$OUT_DIR/stage"
 
-APP_BINARY="GitNext"                             # AssemblyName -> native launcher
+APP_BINARY="Brencho"                             # AssemblyName -> native launcher
 RID="linux-x64"
-# The product mark, exported from packaging/../App/Assets/Icons/gitNext.svg into
+# The product mark, exported from packaging/../App/Assets/Icons/Brencho.svg into
 # one PNG per hicolor size. Installing every size (not just 256) is what lets a
 # panel, a dock and an alt-tab switcher each pick the one they need instead of
 # downscaling the big one themselves.
@@ -37,7 +37,7 @@ if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
 else
     VERSION="5.0.0-linux1"
 fi
-DEB_NAME="gitnext_${VERSION}_amd64.deb"
+DEB_NAME="brencho_${VERSION}_amd64.deb"
 
 # --- .NET on PATH ------------------------------------------------------------
 export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
@@ -56,13 +56,13 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 for size in $ICON_SIZES; do
-    if [[ ! -f "$ICON_DIR/gitnext-$size.png" ]]; then
-        echo "error: icon not found at $ICON_DIR/gitnext-$size.png" >&2
+    if [[ ! -f "$ICON_DIR/brencho-$size.png" ]]; then
+        echo "error: icon not found at $ICON_DIR/brencho-$size.png" >&2
         exit 1
     fi
 done
 
-echo "==> Building gitNext ${VERSION} (${RID})"
+echo "==> Building Brencho ${VERSION} (${RID})"
 
 # --- 1. Clean + self-contained publish --------------------------------------
 rm -rf "$STAGE_DIR" "$PUBLISH_DIR"
@@ -94,7 +94,7 @@ echo "==> Translations: $(find "$PUBLISH_DIR/Translation" -name '*.xlf' | wc -l)
 
 # --- 2. Stage the Debian tree ------------------------------------------------
 echo "==> Staging Debian tree"
-INSTALL_ROOT="/opt/gitnext"
+INSTALL_ROOT="/opt/brencho"
 mkdir -p "$STAGE_DIR/DEBIAN"
 mkdir -p "$STAGE_DIR$INSTALL_ROOT"
 mkdir -p "$STAGE_DIR/usr/bin"
@@ -111,16 +111,16 @@ chmod +x "$STAGE_DIR$INSTALL_ROOT/$APP_BINARY"
 INSTALLED_SIZE="$(du -sk "$STAGE_DIR$INSTALL_ROOT" | cut -f1)"
 
 # Launcher wrapper
-cat > "$STAGE_DIR/usr/bin/gitnext" <<EOF
+cat > "$STAGE_DIR/usr/bin/brencho" <<EOF
 #!/bin/sh
 exec $INSTALL_ROOT/$APP_BINARY "\$@"
 EOF
-chmod 0755 "$STAGE_DIR/usr/bin/gitnext"
+chmod 0755 "$STAGE_DIR/usr/bin/brencho"
 
 # Desktop entry + icon
-cp "$SCRIPT_DIR/gitnext.desktop" "$STAGE_DIR/usr/share/applications/gitnext.desktop"
+cp "$SCRIPT_DIR/brencho.desktop" "$STAGE_DIR/usr/share/applications/brencho.desktop"
 for size in $ICON_SIZES; do
-    cp "$ICON_DIR/gitnext-$size.png" "$STAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps/gitnext.png"
+    cp "$ICON_DIR/brencho-$size.png" "$STAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps/brencho.png"
 done
 
 # Licence and attribution. GPL v3 (section 4) and the MIT/ISC/BSD/OFL terms of
@@ -128,7 +128,7 @@ done
 # binaries; a .deb is the binary, so they go in the standard place. The
 # third-party list is generated from the publish's deps.json, and an unknown
 # licence fails the build here rather than shipping unattributed.
-DOC_DIR="$STAGE_DIR/usr/share/doc/gitnext"
+DOC_DIR="$STAGE_DIR/usr/share/doc/brencho"
 mkdir -p "$DOC_DIR"
 python3 "$SCRIPT_DIR/gen-copyright.py" "$PUBLISH_DIR" "$DOC_DIR/copyright"
 cp "$REPO_ROOT/src/app/GitUI/Resources/Icons/originals/_Icon Sources.txt" "$DOC_DIR/ICON-SOURCES.txt"
@@ -136,15 +136,17 @@ chmod 0644 "$DOC_DIR/copyright" "$DOC_DIR/ICON-SOURCES.txt"
 
 # DEBIAN/control
 cat > "$STAGE_DIR/DEBIAN/control" <<EOF
-Package: gitnext
+Package: brencho
 Version: ${VERSION}
 Architecture: amd64
 Section: vcs
 Priority: optional
 Depends: git
+Conflicts: gitnext
+Replaces: gitnext
 Installed-Size: ${INSTALLED_SIZE}
-Maintainer: gitNext <noreply@example.invalid>
-Description: gitNext - graphical user interface for Git
+Maintainer: Brencho <noreply@example.invalid>
+Description: Brencho - graphical user interface for Git
  Git Extensions is a standalone UI tool for managing Git repositories.
  This is the cross-platform Linux port built on Avalonia and .NET,
  shipped self-contained so no separate .NET runtime is required.

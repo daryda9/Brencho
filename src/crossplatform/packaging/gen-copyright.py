@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Write the Debian copyright file for the gitNext .deb.
+"""Write the Debian copyright file for the Brencho .deb.
 
 Usage: gen-copyright.py <publish-dir> <output-file>
 
-The third-party part is derived from <publish-dir>/GitNext.deps.json, i.e. from
+The third-party part is derived from <publish-dir>/Brencho.deps.json, i.e. from
 what the publish actually shipped, so a new NuGet dependency cannot slip into the
 package unattributed: its licence is read from the package's .nuspec in the
 NuGet cache, and a licence this script does not recognise stops the build
 instead of being written down as "unknown".
 
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Paths in Files: are relative to /opt/gitnext, where the payload is installed.
+Paths in Files: are relative to /opt/brencho, where the payload is installed.
 """
 
 import json
@@ -84,7 +84,7 @@ def license_paragraph(name, path):
 
 def main():
     publish, out = Path(sys.argv[1]), Path(sys.argv[2])
-    deps = json.loads((publish / "GitNext.deps.json").read_text(encoding="utf-8"))
+    deps = json.loads((publish / "Brencho.deps.json").read_text(encoding="utf-8"))
     target = next(v for k, v in deps["targets"].items() if "/" in k)  # the RID-specific one
 
     stanzas = []
@@ -128,19 +128,19 @@ def main():
     with out.open("w", encoding="utf-8") as w:
         w.write(
             "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n"
-            "Upstream-Name: gitNext\n"
+            "Upstream-Name: Brencho\n"
             "Source: https://github.com/daryda9/gitextensions\n"
-            "Comment: gitNext is a Linux port of Git Extensions\n"
-            " (https://github.com/gitextensions/gitextensions), modified by the gitNext\n"
+            "Comment: Brencho is a Linux port of Git Extensions\n"
+            " (https://github.com/gitextensions/gitextensions), modified by the Brencho\n"
             " contributors. The complete corresponding source is at the Source: address.\n"
-            " Paths below are relative to /opt/gitnext.\n\n"
+            " Paths below are relative to /opt/brencho.\n\n"
             "Files: *\n"
             "Copyright: 2008-2026 Git Extensions Team\n"
-            "           2025-2026 gitNext contributors\n"
+            "           2025-2026 Brencho contributors\n"
             "License: GPL-3\n\n"
-            "Files: GitNext.dll\n"
+            "Files: Brencho.dll\n"
             "Copyright: 2008-2026 Git Extensions Team\n"
-            "           2025-2026 gitNext contributors\n"
+            "           2025-2026 Brencho contributors\n"
             "           2013-2022 Cole Bemis (Feather)\n"
             "           2022 Lucide Contributors\n"
             "           Yusuke Kamiyamane (Fugue icons) and the other authors listed in ICON-SOURCES.txt\n"
@@ -149,7 +149,7 @@ def main():
             " from Lucide (lucide-react 0.462.0), ISC; portions of Lucide come from\n"
             " Feather, MIT. The Classic icon set is upstream Git Extensions' bitmap set,\n"
             " mostly from Fugue by Yusuke Kamiyamane (CC-BY-3.0); its full list of\n"
-            " sources and terms is /usr/share/doc/gitnext/ICON-SOURCES.txt.\n\n"
+            " sources and terms is /usr/share/doc/brencho/ICON-SOURCES.txt.\n\n"
         )
         for files, holders, lics, comment in stanzas:
             w.write("Files: " + "\n       ".join(files) + "\n")

@@ -65,7 +65,7 @@ public sealed class AboutDialog : Theming.ZoomWindow
         };
 
         // Optional app icon; degrade gracefully when it is not linked in.
-        Image? icon = IconLoader.Image("GitNext", 48);
+        Image? icon = IconLoader.Image("Brencho", 48);
         if (icon is not null)
         {
             icon.VerticalAlignment = VerticalAlignment.Center;
@@ -79,7 +79,7 @@ public sealed class AboutDialog : Theming.ZoomWindow
         // language stops identifying the program.
         titles.Children.Add(new TextBlock
         {
-            Text = "gitNext",
+            Text = "Brencho",
             Foreground = text,
             FontSize = 22,
             FontWeight = FontWeight.SemiBold,
@@ -253,7 +253,7 @@ public sealed class AboutDialog : Theming.ZoomWindow
         // Measured before changing it: neither "About Git Extensions" nor a bare
         // "About" appears as a <source> in any catalogue, so this title was English
         // in every language already and the rename throws no translation away.
-        Title = T("About gitNext");
+        Title = T("About Brencho");
         _subtitle.Text = T("Avalonia / Linux port");
         _description.Text = T(
             "A cross-platform graphical user interface for Git, "

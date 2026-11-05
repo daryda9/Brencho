@@ -1,6 +1,6 @@
-# gitNext
+# Brencho
 
-<img src="/src/crossplatform/App/Assets/Icons/gitNext.svg" alt="" width="72" align="right">
+<img src="/src/crossplatform/App/Assets/Icons/Brencho.svg" alt="" width="72" align="right">
 
 **A Linux port of [Git Extensions](https://github.com/gitextensions/gitextensions).**
 The git logic is upstream's, compiled unchanged for plain `net10.0`; the interface is
@@ -47,4 +47,4 @@ else in this repository is upstream Git Extensions, kept in sync with it.
 
 [GPL v3](/LICENSE.md), the same as Git Extensions, from which this is derived. The
 `.deb` carries the notices of every bundled third-party component in
-`/usr/share/doc/gitnext/copyright`.
+`/usr/share/doc/brencho/copyright`.

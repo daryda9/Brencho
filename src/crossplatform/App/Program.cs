@@ -202,9 +202,9 @@ internal static class Program
             // by WM_CLASS finds nothing of ours and shows its generic placeholder even
             // though _NET_WM_ICON is set on the window (measured: the app bar kept a
             // gear while xprop reported a 128x128 icon). Naming it here makes the pair
-            // read "GitNext","GitNext" however the app was launched, and it is the name
-            // packaging/gitnext.desktop declares as StartupWMClass.
-            .With(new X11PlatformOptions { OverlayPopups = true, WmClass = "GitNext" })
+            // read "Brencho","Brencho" however the app was launched, and it is the name
+            // packaging/brencho.desktop declares as StartupWMClass.
+            .With(new X11PlatformOptions { OverlayPopups = true, WmClass = "Brencho" })
             // Every `Browse…` in the app went through Avalonia's X11 StorageProvider, which on this
             // desktop never reaches the XDG portal at all: measured on a real Wayland/XWayland
             // session with a working portal (a manual `org.freedesktop.portal.FileChooser.OpenFile`

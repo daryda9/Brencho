@@ -3418,6 +3418,30 @@ visibile di suo, non serve altro.
 L'ordine è quello della lista salvata, quindi la persistenza era già scritta: verificato chiudendo e
 riaprendo (`wt-alpha`, `git_ext_mod` nell'ordine trascinato).
 
+## M229 (2026-11-05) — gitNext diventa Brencho
+
+Decisione dell'utente. La policy sul marchio Git (git-scm.com/about/trademark, §2.3) vieta "Git"
+come sillaba di un nome di prodotto ("Gitalicious", "Gitpedia") e i nomi da successore ("Git++"):
+gitNext cadeva in entrambi i casi. Scartati anche Ramo, Trama e Rami (software omonimi già
+esistenti), Brancy (marchio registrato nel Regno Unito, classe 9) e gtNext (`gt` è il comando di
+Graphite, e "Next" restava). Brencho: nessun pacchetto su PyPI, npm, crates.io, NuGet, Homebrew,
+Snap, Flathub, AUR o Debian, nessun prodotto sul web. Registri marchi controllati dall'utente.
+
+Stesse tre forme di M223: `Brencho` per gli umani e per `AssemblyName`/`WM_CLASS` (coincidono),
+`brencho` per comando, pacchetto, icona e `/opt/brencho`. File rinominati: `Assets/Icons/Brencho.png`,
+`brencho.svg`, `packaging/brencho.desktop`, `packaging/icons/brencho-*.png`. Il `.deb` dichiara
+`Conflicts`/`Replaces: gitnext`, così apt toglie il pacchetto vecchio invece di installarli entrambi.
+
+**Non cambiato apposta**: la cartella delle impostazioni resta `$XDG_CONFIG_HOME/GitExtensions.Avalonia/`
+(cambiarla azzererebbe tema, layout e scorciatoie di chi ha già usato l'app), e il namespace resta
+`GitExtensions.Avalonia` come in M223. Le menzioni di gitNext nelle milestone precedenti restano:
+sono storia.
+
+**Verificato**: build `-warnaserror` 0 errori; `Tests/run-all.sh` 11/11 verdi (asset-names risolve
+`avares://Brencho/` e `Assets/Icons/Brencho.png`); a schermo su Xvfb `WM_CLASS = "dotnet","Brencho"`,
+titolo `… - Brencho`; `.deb` ricostruito: `Package: brencho`, `/usr/bin/brencho`,
+`brencho.desktop` con `StartupWMClass=Brencho`, `/usr/share/doc/brencho/copyright` generato.
+
 ## M228 (2026-09-04) — il click destro su una cartella ha un menu suo
 
 Chiesto dall'uso: «cliccando col destro su una cartella, dammi la possibilità di fare per esempio uno

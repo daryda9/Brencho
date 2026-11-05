@@ -6,7 +6,7 @@ namespace GitExtensions.Avalonia.Theming;
 /// <remarks>
 ///  <para><b>Why this exists.</b> The host part of an <c>avares:</c> URI is the
 ///  assembly name, and this file is what stops that name from being written down. It
-///  used to be a literal in five places, and renaming the assembly to <c>GitNext</c>
+///  used to be a literal in five places, and renaming the assembly to <c>Brencho</c>
 ///  broke them in a way that is worse than a crash: <see cref="Avalonia.Platform.AssetLoader"/>
 ///  answers "no such asset" for an unknown host, and the callers were written to treat
 ///  a missing asset as "draw nothing". The merge and rebase dialogs lost the
@@ -17,7 +17,7 @@ namespace GitExtensions.Avalonia.Theming;
 /// </remarks>
 internal static class AssetUri
 {
-    /// <summary>e.g. <c>avares://GitNext/</c>, with the trailing slash.</summary>
+    /// <summary>e.g. <c>avares://Brencho/</c>, with the trailing slash.</summary>
     internal static string Base { get; } =
         $"avares://{typeof(AssetUri).Assembly.GetName().Name}/";
 

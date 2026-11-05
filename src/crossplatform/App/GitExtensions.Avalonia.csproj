@@ -3,11 +3,11 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>GitExtensions.Avalonia</RootNamespace>
-    <!-- The product is gitNext; the namespace stays GitExtensions.Avalonia because
+    <!-- The product is Brencho; the namespace stays GitExtensions.Avalonia because
          renaming it would touch 188 files for no visible effect. This name is what
          the dll is called, what Avalonia reports as WM_CLASS (so it must match
-         StartupWMClass in packaging/gitnext.desktop) and what avares: URIs carry. -->
-    <AssemblyName>GitNext</AssemblyName>
+         StartupWMClass in packaging/brencho.desktop) and what avares: URIs carry. -->
+    <AssemblyName>Brencho</AssemblyName>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
@@ -95,7 +95,7 @@
          NOT linked under another name: for a file inside the project the avares:
          path IS its project-relative path and a <Link> is ignored, so the file is
          named what the code asks for. -->
-    <AvaloniaResource Include="Assets\Icons\GitNext.png" />
+    <AvaloniaResource Include="Assets\Icons\Brencho.png" />
   </ItemGroup>
 
   <ItemGroup>

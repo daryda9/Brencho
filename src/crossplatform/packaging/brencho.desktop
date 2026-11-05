@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=gitNext
+Name=Brencho
 Comment=Graphical user interface for Git
-Exec=gitnext %U
-Icon=gitnext
+Exec=brencho %U
+Icon=brencho
 Terminal=false
 Type=Application
 Categories=Development;RevisionControl;
@@ -12,4 +12,4 @@ StartupNotify=true
 # with xprop). Without it a desktop shell cannot tell that the running window belongs
 # to this entry: the launcher shows the icon above, the open window shows the shell's
 # generic placeholder, and the two sit side by side in the dock instead of being one.
-StartupWMClass=GitNext
+StartupWMClass=Brencho

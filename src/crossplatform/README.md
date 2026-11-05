@@ -1,13 +1,13 @@
-# gitNext
+# Brencho
 
-<img src="App/Assets/Icons/gitNext.svg" alt="" width="72" align="right">
+<img src="App/Assets/Icons/Brencho.svg" alt="" width="72" align="right">
 
-**A Linux port of Git Extensions.** The git logic is that project's, reused as it is
+**A Linux port of Git Extensions.** (Called gitNext until November 2026; renamed because the Git trademark policy does not allow "Git" inside a product name.) The git logic is that project's, reused as it is
 (`GitCommands`, `GitExtUtils`, `GitExtensions.Extensibility`, `GitUIPluginInterfaces`);
 the interface is a ground-up Avalonia UI, because the original is WinForms and WinForms
 does not leave Windows.
 
-The engine is git itself — gitNext runs it, it does not reimplement it.
+The engine is git itself — Brencho runs it, it does not reimplement it.
 
 What changed is the interface — and, in the places listed below, what the
 application can do without reaching for another program.
@@ -280,7 +280,7 @@ first CI run, which caught a harness that deadlocked only on a small machine.
   `GitHub3`, one of the plugins — which is also why it can be switched off there and
   not here.
 - **A `.deb`**: `packaging/build-deb.sh` produces a self-contained package that
-  needs no .NET on the target, installs under `/opt/gitnext`, and declares
+  needs no .NET on the target, installs under `/opt/brencho`, and declares
   `git` as its only dependency.
 
 ## What is not here
@@ -315,7 +315,7 @@ GPL v3 ([`LICENSE.md`](../../LICENSE.md) at the repository root), inherited from
 Extensions: this is a derived work and stays under the same terms. The bundled
 third-party components keep their own licences (MIT, Apache-2.0, BSD-3-Clause, ISC,
 OFL-1.1, CC-BY-3.0 for the Classic icons); the `.deb` lists each one in
-`/usr/share/doc/gitnext/copyright`, generated at build time — see
+`/usr/share/doc/brencho/copyright`, generated at build time — see
 [`packaging/README.md`](packaging/README.md).
 
 ---
@@ -365,7 +365,7 @@ cd src/crossplatform
 dotnet build App/GitExtensions.Avalonia.csproj
 
 # Headless self-test — proves the reused git core works on Linux (no display).
-DLL=$(find bin -name GitNext.dll | head -1)
+DLL=$(find bin -name Brencho.dll | head -1)
 dotnet "$DLL" --selftest /path/to/a/git/repo
 
 # GUI (needs X11, or XWayland under a Wayland session).
@@ -377,7 +377,7 @@ Tests/run-all.sh --no-build
 ```
 
 A `.deb` for a machine with no .NET installed: `packaging/build-deb.sh`, then
-`sudo apt install ./packaging/out/gitnext_<version>_amd64.deb`. See
+`sudo apt install ./packaging/out/brencho_<version>_amd64.deb`. See
 `packaging/README.md`.
 
 ### On Windows
@@ -393,7 +393,7 @@ cd src\crossplatform
 dotnet build App\GitExtensions.Avalonia.csproj
 
 # Headless self-test — same as above, no window needed.
-dotnet bin\GitExtensions.Avalonia\Debug\net10.0\GitNext.dll --selftest C:\path\to\a\git\repo
+dotnet bin\GitExtensions.Avalonia\Debug\net10.0\Brencho.dll --selftest C:\path\to\a\git\repo
 
 # GUI.
 dotnet run --project App\GitExtensions.Avalonia.csproj
@@ -402,7 +402,7 @@ dotnet run --project App\GitExtensions.Avalonia.csproj
 dotnet publish App\GitExtensions.Avalonia.csproj -c Release -r win-x64 --self-contained
 ```
 
-`dotnet build` already emits a native `GitNext.exe` launcher next
+`dotnet build` already emits a native `Brencho.exe` launcher next
 to the assemblies, but it needs the .NET 10 shared runtime; the `publish` line
 above bundles the runtime instead. It lands in
 `dist\<configuration>\<rid>\` (gitignored) — `dist\Release\win-x64\` here, or

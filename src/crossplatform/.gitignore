@@ -10,4 +10,5 @@ dist/
 # accident once, then dirtied the working tree on every run. Both the old name and
 # the new one are ignored: a build from an older commit still writes the old folder.
 GitNext/
+Brencho/
 GitExtensions.Avalonia/GitExtensions.settings*

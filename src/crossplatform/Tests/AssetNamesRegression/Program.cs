@@ -52,7 +52,7 @@ bool Resolves(string relativePath)
 // ---------------------------------------------------------------- 1. la base
 //
 // L'host di un URI avares: E' il nome dell'assembly. Scriverlo a mano e' cio' che ha
-// spento le illustrazioni: dopo la rinomina a GitNext i letterali indicavano un assembly
+// spento le illustrazioni: dopo la rinomina a Brencho i letterali indicavano un assembly
 // che non esiste piu'. Theming.AssetUri e' l'unico posto che lo compone, ed e' interno,
 // quindi lo si legge per reflection: il banco non deve poter divergere dal codice.
 Type? assetUri = app.GetType("GitExtensions.Avalonia.Theming.AssetUri");
@@ -65,7 +65,7 @@ Check(actualBase == expectedBase, $"AssetUri.Base e' '{expectedBase}' (letto: '{
 //
 // Un file, tre consumatori: l'icona di ogni finestra (Theming.AppIcon), il logo dell'About
 // e la striscia della dashboard. Se manca, tutti e tre tacciono.
-Check(Resolves("Assets/Icons/GitNext.png"), "il marchio del prodotto (Assets/Icons/GitNext.png)");
+Check(Resolves("Assets/Icons/Brencho.png"), "il marchio del prodotto (Assets/Icons/Brencho.png)");
 
 // ---------------------------------------------------------------- 3. i diagrammi di aiuto
 //
@@ -252,7 +252,7 @@ if (haveSource)
 bool wrongHost;
 try
 {
-    wrongHost = loader.Exists(new Uri("avares://GitExtensions.Avalonia/Assets/Icons/GitNext.png"));
+    wrongHost = loader.Exists(new Uri("avares://GitExtensions.Avalonia/Assets/Icons/Brencho.png"));
 }
 catch (Exception)
 {
