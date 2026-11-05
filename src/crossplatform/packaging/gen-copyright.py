@@ -129,7 +129,7 @@ def main():
         w.write(
             "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n"
             "Upstream-Name: Brencho\n"
-            "Source: https://github.com/daryda9/gitextensions\n"
+            "Source: https://github.com/daryda9/Brencho\n"
             "Comment: Brencho is a Linux port of Git Extensions\n"
             " (https://github.com/gitextensions/gitextensions), modified by the Brencho\n"
             " contributors. The complete corresponding source is at the Source: address.\n"
