@@ -1,6 +1,8 @@
-# Brencho
+<p align="center">
+  <img src="/src/crossplatform/App/Assets/Icons/brencho.svg" alt="Brencho logo" width="128">
+</p>
 
-<img src="/src/crossplatform/App/Assets/Icons/Brencho.svg" alt="" width="72" align="right">
+<h1 align="center">Brencho</h1>
 
 **A Linux port of [Git Extensions](https://github.com/gitextensions/gitextensions).**
 The git logic is upstream's, compiled unchanged for plain `net10.0`; the interface is
@@ -22,7 +24,18 @@ a new Avalonia UI, because the original is WinForms and WinForms does not leave 
   where a stopped operation is.
 - **A `.deb` package** that needs no .NET on the target machine.
 
-## Quick start (Linux)
+## Install (Debian / Ubuntu)
+
+Download `brencho_<version>_amd64.deb` from [Releases](https://github.com/daryda9/Brencho/releases), then:
+
+```bash
+sudo apt install ./brencho_*_amd64.deb
+brencho /path/to/a/git/repo
+```
+
+The package bundles its own .NET runtime; the only dependency is `git`.
+
+## Build from source (Linux)
 
 ```bash
 cd src/crossplatform

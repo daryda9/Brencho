@@ -1,6 +1,6 @@
 # Brencho
 
-<img src="App/Assets/Icons/Brencho.svg" alt="" width="72" align="right">
+<img src="App/Assets/Icons/brencho.svg" alt="" width="72" align="right">
 
 **A Linux port of Git Extensions.** (Called gitNext until November 2026; renamed because the Git trademark policy does not allow "Git" inside a product name.) The git logic is that project's, reused as it is
 (`GitCommands`, `GitExtUtils`, `GitExtensions.Extensibility`, `GitUIPluginInterfaces`);

@@ -1,6 +1,6 @@
 # Build and test the Linux/Avalonia port (src/crossplatform).
 #
-# The port has no coverage in app-build.yml: that workflow builds
+# The port has no coverage in upstream's app-build.yml (not kept in this fork): it builds
 # GitExtensions.slnx, which does not contain a single one of these projects, and
 # most of it does not build on Linux at all. So until this file the port's
 # harnesses — which assert and exit non-zero, and have already caught a defect in

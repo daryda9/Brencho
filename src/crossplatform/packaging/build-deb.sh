@@ -24,7 +24,7 @@ STAGE_DIR="$OUT_DIR/stage"
 
 APP_BINARY="Brencho"                             # AssemblyName -> native launcher
 RID="linux-x64"
-# The product mark, exported from packaging/../App/Assets/Icons/Brencho.svg into
+# The product mark, exported from packaging/../App/Assets/Icons/brencho.svg into
 # one PNG per hicolor size. Installing every size (not just 256) is what lets a
 # panel, a dock and an alt-tab switcher each pick the one they need instead of
 # downscaling the big one themselves.
@@ -145,7 +145,7 @@ Depends: git
 Conflicts: gitnext
 Replaces: gitnext
 Installed-Size: ${INSTALLED_SIZE}
-Maintainer: Brencho <noreply@example.invalid>
+Maintainer: daryda9 <57408919+daryda9@users.noreply.github.com>
 Description: Brencho - graphical user interface for Git
  Git Extensions is a standalone UI tool for managing Git repositories.
  This is the cross-platform Linux port built on Avalonia and .NET,
