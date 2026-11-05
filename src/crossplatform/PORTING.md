@@ -3418,6 +3418,27 @@ visibile di suo, non serve altro.
 L'ordine è quello della lista salvata, quindi la persistenza era già scritta: verificato chiudendo e
 riaprendo (`wt-alpha`, `git_ext_mod` nell'ordine trascinato).
 
+## M230 (2026-11-05) — la colonna del messaggio spariva con la locale italiana
+
+Sintomo (segnalato dall'utente): nel grafo niente piu' etichette dei branch, e con loro
+il messaggio del commit e la colonna Commit ID; restavano grafo, avatar, autore e data.
+
+Causa: `RevisionGridView.MakeColumns` costruiva le colonne da una stringa interpolata
+`$"{graph},*,{avatar},{author},{date},{hash}"`. Le larghezze sono double e una colonna
+trascinata viene salvata cosi' com'e' (`view-prefs.json`: `"Author": 238.20000000000027`);
+l'interpolazione usa la cultura corrente, e in it_IT scrive `238,20000000000027`. Il
+parser legge quella virgola come separatore: una colonna ne diventa due, una larga 2e13
+px, e la colonna Fill (badge dei ref + messaggio) finisce a zero. Per questo "di recente":
+il difetto c'era da sempre, ma si manifesta solo dopo aver trascinato un divisore su una
+posizione frazionaria con una locale che usa la virgola decimale.
+
+Correzione: le `ColumnDefinition` si costruiscono da valori `GridLength`, senza passare
+dal testo. `BlameView` usa lo stesso schema ma con costanti intere, quindi non e' esposto.
+
+Verifica: riprodotto su Xvfb con le preferenze reali dell'utente (colonna messaggio a
+zero); dopo la correzione badge, messaggi e Commit ID tornano. Build -warnaserror
+0 errori, `Tests/run-all.sh` ALL GREEN (11).
+
 ## M229 (2026-11-05) — gitNext diventa Brencho
 
 Decisione dell'utente. La policy sul marchio Git (git-scm.com/about/trademark, §2.3) vieta "Git"

@@ -5584,10 +5584,24 @@ public sealed class RevisionGridView : UserControl
         // (CommitIdColumnProvider.cs:21-29). This port used to put the SHA-1 in
         // second place and the subject last, which was the single most visible
         // divergence from the Windows grid.
+        //
+        // Built from GridLength values, NOT from an interpolated "w,*,w,…" string: the
+        // widths are doubles (a dragged column is stored as e.g. 238.20000000000027) and
+        // interpolation formats them in the CURRENT culture. Under it_IT that is
+        // "238,20000000000027", whose comma the parser reads as a column separator: one
+        // column became two, one of them 2e13 px wide, and the Fill subject column — the
+        // ref pills and the message — was squeezed to zero.
         return new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions(
-                $"{EffectiveGraphWidth},*,{avatar},{author},{date},{hash}"),
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(EffectiveGraphWidth, GridUnitType.Pixel),
+                new ColumnDefinition(1, GridUnitType.Star),
+                new ColumnDefinition(avatar, GridUnitType.Pixel),
+                new ColumnDefinition(author, GridUnitType.Pixel),
+                new ColumnDefinition(date, GridUnitType.Pixel),
+                new ColumnDefinition(hash, GridUnitType.Pixel),
+            },
 
             // Marked so a live column drag can find the row grids among the panels the
             // row template nests inside them, without guessing from the column count.
