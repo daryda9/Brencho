@@ -13,3 +13,11 @@ to, to `REVIEWED_LICENSE_FILES`. Code that a package embeds from someone else (S
 HarfBuzz, the Inter font) is declared in `EMBEDDED`. The licence texts quoted in full
 live in `licenses/`; GPL-3 and Apache-2.0 point to `/usr/share/common-licenses/`.
 `ICON-SOURCES.txt` beside it is upstream's list of where the Classic icons came from.
+
+## Arch Linux (AUR)
+
+`aur/PKGBUILD` builds `brencho-bin` by unpacking the `.deb` attached to the GitHub
+release, so Arch gets the same self-contained binary. Builds are not byte-reproducible
+(timestamps), so after uploading a `.deb` to a release its `sha256sums` must be
+refreshed: `updpkgsums && makepkg --printsrcinfo > .SRCINFO` on Arch, or by hand with
+`sha256sum` in both files. Bump `_debver` together with `packaging/VERSION`.

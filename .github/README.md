@@ -4,9 +4,17 @@
 
 <h1 align="center">Brencho</h1>
 
-**A Linux port of [Git Extensions](https://github.com/gitextensions/gitextensions).**
-The git logic is upstream's, compiled unchanged for plain `net10.0`; the interface is
-a new Avalonia UI, because the original is WinForms and WinForms does not leave Windows.
+<p align="center"><b>A graphical Git client for Linux, based on Git Extensions.</b><br>
+Commit graph, multi-repo tabs, built-in diff and three-way merge, interactive rebase.</p>
+
+Brencho is a port of [Git Extensions](https://github.com/gitextensions/gitextensions),
+the Windows Git GUI, to Linux. If you used Git Extensions on Windows and want the
+same tool on Ubuntu, Debian or Arch, this is it. It is free and open source
+(GPL v3) and a desktop alternative to GitKraken, SmartGit or GitHub Desktop.
+
+The git logic is upstream's, compiled unchanged for plain `net10.0`. The interface
+is a new Avalonia UI, because the original is WinForms and WinForms does not run
+outside Windows.
 
 ![The main window: revision graph, repository tabs, and the diff pane](/src/crossplatform/docs/screenshots/main-window.png)
 
@@ -34,6 +42,10 @@ brencho /path/to/a/git/repo
 ```
 
 The package bundles its own .NET runtime; the only dependency is `git`.
+
+## Arch Linux
+
+A `brencho-bin` PKGBUILD is in [`src/crossplatform/packaging/aur/`](/src/crossplatform/packaging/aur/).
 
 ## Build from source (Linux)
 

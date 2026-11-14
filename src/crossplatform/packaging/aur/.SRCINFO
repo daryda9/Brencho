@@ -1,0 +1,25 @@
+pkgbase = brencho-bin
+	pkgdesc = Graphical Git client for Linux, a port of Git Extensions with an Avalonia UI
+	pkgver = 5.0.0.linux1
+	pkgrel = 1
+	url = https://github.com/daryda9/Brencho
+	arch = x86_64
+	license = GPL-3.0-only
+	depends = git
+	depends = icu
+	depends = fontconfig
+	depends = libx11
+	depends = libice
+	depends = libsm
+	depends = zlib
+	depends = gcc-libs
+	depends = glibc
+	optdepends = xdg-desktop-portal: follow the desktop light/dark theme
+	provides = brencho
+	conflicts = brencho
+	options = !strip
+	options = !debug
+	source = https://github.com/daryda9/Brencho/releases/download/v5.0.0-linux1/brencho_5.0.0-linux1_amd64.deb
+	sha256sums = 51f95447b83fbb71b9f7723b5c9707c7df59db5e04dce4a3ef31108dcaa44722
+
+pkgname = brencho-bin

@@ -1,0 +1,28 @@
+# Maintainer: daryda9 <57408919+daryda9@users.noreply.github.com>
+#
+# Repackages the self-contained .deb published on the GitHub release, so Arch users
+# get exactly the binary Debian/Ubuntu users get. The .NET runtime travels inside
+# /opt/brencho; what it still loads from the system is listed in depends.
+
+pkgname=brencho-bin
+_debver=5.0.0-linux1
+pkgver=${_debver//-/.}
+pkgrel=1
+pkgdesc="Graphical Git client for Linux, a port of Git Extensions with an Avalonia UI"
+arch=('x86_64')
+url="https://github.com/daryda9/Brencho"
+license=('GPL-3.0-only')
+depends=('git' 'icu' 'fontconfig' 'libx11' 'libice' 'libsm' 'zlib' 'gcc-libs' 'glibc')
+optdepends=('xdg-desktop-portal: follow the desktop light/dark theme')
+provides=('brencho')
+conflicts=('brencho')
+options=('!strip' '!debug')
+source=("https://github.com/daryda9/Brencho/releases/download/v${_debver}/brencho_${_debver}_amd64.deb")
+# Must be the hash of the file attached to the release: run `updpkgsums` after uploading.
+sha256sums=('51f95447b83fbb71b9f7723b5c9707c7df59db5e04dce4a3ef31108dcaa44722')
+
+package() {
+    bsdtar -xf data.tar.zst -C "$pkgdir"
+    install -Dm644 "$pkgdir/usr/share/doc/brencho/copyright" \
+        "$pkgdir/usr/share/licenses/$pkgname/copyright"
+}
