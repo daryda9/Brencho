@@ -177,12 +177,29 @@ public static class ConflictFlow
             .ConfigureAwait(true);
 
         bool asked = !bypass;
-        bool accepted = bypass || await ConfirmAsync(
-                owner,
-                T("MessageBoxes/_unresolvedMergeConflicts.Text",
-                    "There are unresolved merge conflicts, solve conflicts now?"),
-                T("MessageBoxes/_unresolvedMergeConflictsCaption.Text", "Merge conflicts"))
-            .ConfigureAwait(true);
+        bool accepted = bypass;
+        if (!bypass)
+        {
+            // Upstream 0e25814d0: the question carries its own "Don't show again", which
+            // until then could only be set by editing app-settings.json here.
+            (bool confirmed, bool dontShowAgain) = await ConfirmSuppressibleAsync(
+                    owner,
+                    T("MessageBoxes/_unresolvedMergeConflicts.Text",
+                        "There are unresolved merge conflicts, solve conflicts now?"),
+                    T("MessageBoxes/_unresolvedMergeConflictsCaption.Text", "Merge conflicts"))
+                .ConfigureAwait(true);
+            accepted = confirmed;
+            if (dontShowAgain)
+            {
+                await Task.Run(() =>
+                {
+                    SettingsService settings = new();
+                    AppPreferences prefs = settings.Load();
+                    prefs.DontConfirmResolveConflicts = true;
+                    settings.Save(prefs);
+                }).ConfigureAwait(true);
+            }
+        }
 
         if (!accepted)
         {
@@ -301,6 +318,26 @@ public static class ConflictFlow
         return await ShowAsync(owner, text, title, withCancel: true).ConfigureAwait(true);
     }
 
+    /// <summary>
+    ///  <see cref="ConfirmAsync"/> with upstream's in-dialog "Don't show again" check box
+    ///  (0e25814d0, <c>MessageBoxes.ConfirmSuppressible</c>). The caller persists the
+    ///  answer: the box is reported ticked only together with a Yes, because the settings
+    ///  it feeds (<c>DontConfirm*</c>) mean "answer Yes without asking" — a No with the box
+    ///  ticked would otherwise turn into an automatic Yes next time.
+    /// </summary>
+    public static async Task<(bool Confirmed, bool DontShowAgain)> ConfirmSuppressibleAsync(Window owner, string text, string title)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        CheckBox dontShowAgain = new()
+        {
+            Content = new TextBlock { Text = T("TranslatedStrings/_dontShowAgain.Text", "Don't show again") },
+            Margin = new Thickness(44, 12, 0, 0),
+        };
+
+        bool confirmed = await ShowAsync(owner, text, title, withCancel: true, dontShowAgain).ConfigureAwait(true);
+        return (confirmed, confirmed && dontShowAgain.IsChecked == true);
+    }
+
     /// <summary>Same modal with a single OK button, for reporting an outcome.</summary>
     public static async Task InfoAsync(Window owner, string text, string title)
     {
@@ -308,7 +345,7 @@ public static class ConflictFlow
         await ShowAsync(owner, text, title, withCancel: false).ConfigureAwait(true);
     }
 
-    private static async Task<bool> ShowAsync(Window owner, string text, string title, bool withCancel)
+    private static async Task<bool> ShowAsync(Window owner, string text, string title, bool withCancel, CheckBox? verification = null)
     {
         IBrush foreground = Brush("App.Text", Brushes.Gainsboro);
         IBrush accent = Brush("App.Accent", Brushes.SteelBlue);
@@ -414,6 +451,11 @@ public static class ConflictFlow
 
         StackPanel content = new() { Margin = new Thickness(20) };
         content.Children.Add(row);
+        if (verification is not null)
+        {
+            content.Children.Add(verification);
+        }
+
         content.Children.Add(buttons);
 
         dialog.Content = new Border

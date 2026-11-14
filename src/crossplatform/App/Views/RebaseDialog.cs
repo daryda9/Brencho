@@ -694,6 +694,17 @@ public sealed class RebaseDialog : Theming.ZoomWindow
             emit =>
             {
                 res = new BranchTagService().RebaseStreaming(repo, choice, emit);
+
+                // Upstream d9a782308: a stop whose conflicts rerere already resolved and
+                // staged is continued at once — with the same no-op editor the start
+                // used, so the step keeps git's prepared message and nothing is asked.
+                RebaseCommandResult continued = new RebaseSessionService().ContinueReplayedResolutions(
+                    repo, new RebaseCommandResult(res.Success, res.Output), emit, askForMessages: false);
+                if (!ReferenceEquals(continued.Output, res.Output))
+                {
+                    res = new BranchTagResult(continued.Success, res.Output + continued.Output);
+                }
+
                 return new GitProcessOutcome(res.Success, res.Output);
             },
 

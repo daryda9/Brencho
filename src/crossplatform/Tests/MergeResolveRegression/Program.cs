@@ -66,6 +66,8 @@ try
     await RunSaveCleanStagesAsync();
     RunReopenAfterStage();
     RunMarkerScan();
+    RunBothDeletedKind();
+    RunRerereAutoContinue();
 }
 finally
 {
@@ -212,6 +214,95 @@ void RunMarkerScan()
     Check("a resolved file is no longer reported",
         !conflicts.ListStagedWithMarkers(repo).Contains(entry.Path),
         Join(conflicts.ListStagedWithMarkers(repo)));
+}
+
+// Upstream a4d51838f: a path deleted on both sides (only stage 1 left — what a
+// rename/rename conflict leaves on the original path) is its own kind, not "added by them".
+void RunBothDeletedKind()
+{
+    string repo = Path.Combine(scratch, "both-deleted");
+    Directory.CreateDirectory(repo);
+    Init(repo);
+    File.WriteAllText(Path.Combine(repo, "a.txt"), "content\n");
+    Git(repo, "add -A");
+    Git(repo, "commit -q -m base");
+    Git(repo, "checkout -q -b theirs");
+    Git(repo, "mv a.txt theirs.txt");
+    Git(repo, "commit -q -m theirs");
+    Git(repo, "checkout -q main");
+    Git(repo, "mv a.txt ours.txt");
+    Git(repo, "commit -q -m ours");
+    Git(repo, "merge theirs");   // rename/rename: conflicts on purpose
+
+    ConflictEntry? original = new ConflictService().ListConflicts(repo).FirstOrDefault(e => e.Path == "a.txt");
+    Check("the original path of a rename/rename is listed", original is not null, Git(repo, "ls-files -u"));
+    Check("deleted on both sides is BothDeleted", original?.Kind == ConflictKind.BothDeleted, $"{original?.Kind}");
+}
+
+// Upstream d9a782308: a rebase stop whose conflicts rerere resolved AND staged is
+// continued without asking; an `edit` stop is not. Structural on purpose: git here may
+// be localised, and the "using previous resolution" line with it.
+void RunRerereAutoContinue()
+{
+    string repo = Path.Combine(scratch, "rerere-continue");
+    Directory.CreateDirectory(repo);
+    Init(repo);
+    Git(repo, "config rerere.enabled true");
+    Git(repo, "config rerere.autoupdate true");
+    File.WriteAllText(Path.Combine(repo, "f"), "a\nb\nc\n");
+    Git(repo, "add -A");
+    Git(repo, "commit -q -m base");
+    Git(repo, "checkout -q -b topic");
+    File.WriteAllText(Path.Combine(repo, "f"), "a\nTOPIC\nc\n");
+    Git(repo, "commit -q -am t1");
+    File.WriteAllText(Path.Combine(repo, "f"), "a\nTOPIC\nc\nd\n");
+    Git(repo, "commit -q -am t2");
+    Git(repo, "checkout -q main");
+    File.WriteAllText(Path.Combine(repo, "f"), "a\nMAIN\nc\n");
+    Git(repo, "commit -q -am m1");
+    Git(repo, "checkout -q topic");
+    Git(repo, "tag start");
+
+    // First time round the user resolves by hand, which teaches rerere the answer.
+    Git(repo, "rebase main");
+    File.WriteAllText(Path.Combine(repo, "f"), "a\nRESOLVED\nc\n");
+    Git(repo, "add f");
+    Git(repo, "-c core.editor=true rebase --continue");
+    Git(repo, "reset -q --hard start");
+
+    // Second time rerere replays and stages it: the stop must be recognised. From the
+    // bar, the continue reaches git's message editor and comes back as a request for it
+    // (measured: --continue after a conflicted pick opens the editor).
+    Git(repo, "rebase main");
+    Check("a replayed stop is recognised", RebaseSessionService.StoppedOnReplayedResolution(repo), Git(repo, "status --short"));
+    RebaseCommandResult asking = new RebaseSessionService().ContinueReplayedResolutions(
+        repo, new RebaseCommandResult(false, string.Empty), _ => { });
+    Check("from the bar the step's message is asked for", asking.Pending is not null, asking.Output);
+    Git(repo, "rebase --abort");
+
+    // From the dialog (no-op editor) it runs to the end.
+    Git(repo, "rebase main");
+    RebaseCommandResult result = new RebaseSessionService().ContinueReplayedResolutions(
+        repo, new RebaseCommandResult(false, string.Empty), _ => { }, askForMessages: false);
+    Check("the rebase is continued to the end", result.Success && !Directory.Exists(Path.Combine(repo, ".git", "rebase-merge")), result.Output);
+    Check("the replayed resolution is in the result", File.ReadAllText(Path.Combine(repo, "f")) == "a\nRESOLVED\nc\nd\n", File.ReadAllText(Path.Combine(repo, "f")));
+
+    // An `edit` stop has nothing staged and the amend marker: left alone.
+    Git(repo, "reset -q --hard HEAD");
+    Git(repo, "-c sequence.editor=\"sed -i s/^pick/edit/\" rebase -i HEAD~1");
+    Check("an edit stop is not a replayed stop", !RebaseSessionService.StoppedOnReplayedResolution(repo), Git(repo, "status"));
+    RebaseCommandResult untouched = new RebaseSessionService().ContinueReplayedResolutions(
+        repo, new RebaseCommandResult(false, "x"), _ => { });
+    Check("an edit stop is left stopped", untouched.Output == "x" && Directory.Exists(Path.Combine(repo, ".git", "rebase-merge")), untouched.Output);
+    Git(repo, "rebase --abort");
+}
+
+void Init(string repo)
+{
+    Git(repo, "init -q -b main");
+    Git(repo, "config user.name Harness");
+    Git(repo, "config user.email harness@example.invalid");
+    Git(repo, "config commit.gpgsign false");
 }
 
 // ---------------------------------------------------------------- fixtures

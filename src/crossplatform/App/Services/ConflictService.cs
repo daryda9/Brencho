@@ -59,6 +59,12 @@ public enum ConflictKind
 
     /// <summary>Only their side exists.</summary>
     AddedByThem,
+
+    /// <summary>
+    ///  Only the base exists: deleted on both sides (what a rebase over a bulk rename
+    ///  produces). Upstream a4d51838f describes this case on its own.
+    /// </summary>
+    BothDeleted,
 }
 
 /// <summary>
@@ -96,6 +102,7 @@ public sealed record ConflictEntry(string Path, ConflictSide Base, ConflictSide 
         (true, true, false) => ConflictKind.DeletedByThem,
         (true, false, true) => ConflictKind.DeletedByUs,
         (_, true, false) => ConflictKind.AddedByUs,
+        (true, false, false) => ConflictKind.BothDeleted,
         _ => ConflictKind.AddedByThem,
     };
 

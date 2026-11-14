@@ -952,6 +952,13 @@ public sealed class ResolveConflictsDialog : Theming.ZoomWindow
                   + "Choose to delete the file or keep the modified version."),
                 local, remote),
 
+            // Upstream a4d51838f: deleted on both sides used to fall into the
+            // "only remotely" text below, which is simply wrong.
+            ConflictKind.BothDeleted => string.Format(
+                T("FormResolveConflicts/_fileDeletedLocallyAndRemotely.Text",
+                  "The file has been deleted both locally ({0}) and remotely ({1})."),
+                local, remote),
+
             ConflictKind.AddedByUs => string.Format(
                 T("The file exists only locally ({0}): there is no base revision and no remote version. "
                   + "Choose to keep it or delete it."),

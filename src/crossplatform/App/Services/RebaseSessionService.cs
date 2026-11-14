@@ -1,5 +1,6 @@
 using System.Text;
 using GitCommands;
+using GitExtUtils;
 
 namespace GitExtensions.Avalonia.Services;
 
@@ -432,7 +433,7 @@ public sealed class RebaseSessionService
     ///  <c>GIT_EDITOR</c>.
     /// </summary>
     public RebaseCommandResult Continue(string repoPath, Action<string> emit)
-        => RunAskingForMessages(repoPath, "rebase --continue", emit);
+        => ContinueReplayedResolutions(repoPath, RunAskingForMessages(repoPath, "rebase --continue", emit), emit);
 
     /// <summary>
     ///  <c>git rebase --skip</c>: throws away the step the rebase is stopped on — its
@@ -441,7 +442,127 @@ public sealed class RebaseSessionService
     ///  every step after it and can therefore reach a <c>reword</c> of its own.
     /// </summary>
     public RebaseCommandResult Skip(string repoPath, Action<string> emit)
-        => RunAskingForMessages(repoPath, "rebase --skip", emit);
+        => ContinueReplayedResolutions(repoPath, RunAskingForMessages(repoPath, "rebase --skip", emit), emit);
+
+    /// <summary>
+    ///  Upstream d9a782308 ("auto continue on rerere applied"): when the command that just
+    ///  ran stopped only because of conflicts that rerere already resolved <b>and staged</b>
+    ///  (<c>rerere.autoupdate</c>), there is nothing left for the user to do, so the rebase
+    ///  is continued straight away, step after step, until it ends or stops for a reason
+    ///  that does need a human.
+    ///
+    ///  <para><b>Structural, not textual.</b> Upstream recognises the case from git's
+    ///  "using previous resolution" line. Git on this machine is localised and prints
+    ///  <i>"'f' aggiunto all'area di staging usando la risoluzione precedente"</i>
+    ///  (measured, git 2.43), so the string test would never fire here. See
+    ///  <see cref="StoppedOnReplayedResolution"/> for what is read instead.</para>
+    ///
+    ///  <para>Never applied to a <see cref="RebaseCommandResult.Pending"/> result (a squash
+    ///  waiting for its message also has staged changes and no unmerged path), and it gives
+    ///  up as soon as a <c>--continue</c> leaves the rebase on the same step — a rejecting
+    ///  pre-commit hook would otherwise loop for ever.</para>
+    ///
+    ///  <para><b>The step's message.</b> Measured: the <c>--continue</c> after a conflicted
+    ///  pick opens git's message editor. With <paramref name="askForMessages"/> (the bar's
+    ///  Continue / Skip) that becomes the usual <see cref="RebaseCommandResult.Pending"/>
+    ///  request the bar asks the user about — upstream's own editor pops up at the same
+    ///  point. Without it (a rebase started from the dialog, which pins a no-op editor and
+    ///  asks nothing) git's prepared message is kept, as it was for the steps before.</para>
+    ///
+    ///  <para>Blocks like the other commands: call it from a background task.</para>
+    /// </summary>
+    public RebaseCommandResult ContinueReplayedResolutions(string repoPath, RebaseCommandResult last, Action<string> emit, bool askForMessages = true)
+    {
+        string step = string.Empty;
+        while (!last.Success && last.Pending is null && StoppedOnReplayedResolution(repoPath))
+        {
+            string current = CurrentStepMarker(repoPath);
+            if (current == step)
+            {
+                break;
+            }
+
+            step = current;
+            emit(string.Empty);
+            emit(TranslationService.T("rerere resolved and staged every conflict of this step: continuing the rebase…"));
+            last = askForMessages
+                ? RunAskingForMessages(repoPath, "rebase --continue", emit)
+                : Run(repoPath, "rebase --continue", emit, AcceptingEditors);
+        }
+
+        return last;
+    }
+
+    // `true` exits 0 without touching the file: git keeps the message it prepared —
+    // the same pinning BranchTagService uses to start a rebase that asks nothing.
+    private static readonly IReadOnlyDictionary<string, string?> AcceptingEditors
+        = new Dictionary<string, string?>
+        {
+            ["GIT_SEQUENCE_EDITOR"] = "true",
+            ["GIT_EDITOR"] = "true",
+        };
+
+    /// <summary>
+    ///  True when a rebase is stopped on a step whose conflicts are all already resolved
+    ///  and staged — what rerere with <c>rerere.autoupdate</c> leaves behind. Meant to be
+    ///  asked <b>right after</b> git's own command, before the user can have touched the
+    ///  index. Measured on git 2.43, both backends:
+    ///  <list type="bullet">
+    ///   <item>rerere-resolved stop: nothing unmerged, the step's changes staged, no
+    ///   <c>amend</c> marker, <c>rr-cache</c> present;</item>
+    ///   <item><c>edit</c> stop: <c>amend</c> marker, nothing staged;</item>
+    ///   <item><c>break</c> and failed <c>exec</c>: nothing staged.</item>
+    ///  </list>
+    ///  <c>.git/MERGE_RR</c> is no help: with autoupdate it is already empty at the stop.
+    ///  Never throws.
+    /// </summary>
+    public static bool StoppedOnReplayedResolution(string repoPath)
+    {
+        try
+        {
+            GitModule module = GitContext.CreateModule(repoPath);
+            string dir = module.GetRebaseDir();
+            if (dir.Length == 0
+                || !module.InTheMiddleOfRebase()
+                || File.Exists(Path.Combine(dir, "amend"))
+                || !Directory.Exists(module.ResolveGitInternalPath("rr-cache"))
+                || new WorkingDirectoryService().ListConflicts(repoPath).Count > 0)
+            {
+                return false;
+            }
+
+            // `diff --cached --quiet` exits 1 exactly when something is staged.
+            GitArgumentBuilder args = new("diff") { "--cached", "--quiet" };
+            return module.GitExecutable.Execute(args, throwOnErrorExit: false).ExitCode == 1;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Which step the rebase is on: the merge backend's msgnum, the apply backend's next.
+    private static string CurrentStepMarker(string repoPath)
+    {
+        try
+        {
+            string dir = RebaseDirOf(repoPath);
+            foreach (string name in new[] { "msgnum", "next" })
+            {
+                string file = Path.Combine(dir, name);
+                if (dir.Length > 0 && File.Exists(file))
+                {
+                    return name + ":" + File.ReadAllText(file).Trim();
+                }
+            }
+        }
+        catch
+        {
+            // Unknown step: the caller then gives up after one more attempt at most.
+        }
+
+        return "?";
+    }
 
     /// <summary>
     ///  Finishes the step git stopped on with <paramref name="message"/> and replays the
@@ -496,7 +617,7 @@ public sealed class RebaseSessionService
             // no-op this whole unit exists to remove. The rebase stays stopped and the
             // banner keeps offering the step.
             return amended.Success
-                ? RunAskingForMessages(repoPath, "rebase --continue", emit)
+                ? ContinueReplayedResolutions(repoPath, RunAskingForMessages(repoPath, "rebase --continue", emit), emit)
                 : amended;
         }
         catch (Exception ex)
