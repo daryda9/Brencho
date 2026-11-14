@@ -97,7 +97,11 @@ public sealed class PushRefsService
     ///
     ///  <para>Matched against the whole captured output rather than line by line
     ///  because git decorates the table with colour escapes when it thinks it has a
-    ///  terminal, exactly the reason upstream matches loosely too.</para>
+    ///  terminal, exactly the reason upstream matches loosely too. The padding after
+    ///  the marker is not plain whitespace then: git closes the colour of
+    ///  <c>! [rejected]   </c> with a reset escape before the ref name, which
+    ///  <c>\s*</c> stopped at, so the current branch was never recognised and the pull
+    ///  was not offered. Hence upstream's <c>( .* )?</c> instead (d744586c6).</para>
     /// </summary>
     /// <returns><see langword="null"/> when nothing was rejected.</returns>
     public static PushRejection? DetectRejection(string? output, string? currentBranch)
@@ -109,8 +113,8 @@ public sealed class PushRefsService
 
         string branch = currentBranch ?? string.Empty;
         string pattern = branch.Length > 0
-            ? $@"! \[rejected\]\s*((?<currBranch>{Regex.Escape(branch)})|.*) -> "
-            : @"! \[rejected\]\s*(.*) -> ";
+            ? $@"! \[rejected\]( .* )?((?<currBranch>{Regex.Escape(branch)})|.*) -> "
+            : @"! \[rejected\]( .* )?(.*) -> ";
 
         Match match = Regex.Match(output, pattern);
         return match.Success ? new PushRejection(match.Groups["currBranch"].Success) : null;

@@ -270,6 +270,12 @@ public sealed class CommitDialog : Theming.ZoomWindow
 
     private bool _showUntracked = true;
 
+    // The toggle starts from git's own `status.showuntrackedfiles`, as upstream's does
+    // (130f9ba7d, FileStatusList.InitializeContextMenuAndToolbar): a repository
+    // configured with "no" opens with the untracked files hidden. Read once per
+    // dialog, by the first reload, so that the user's toggle is not overruled later.
+    private bool _untrackedConfigApplied;
+
     private readonly Button _stageBtn;
     private readonly Button _unstageBtn;
     private readonly Button _stageAllBtn;
@@ -746,6 +752,7 @@ public sealed class CommitDialog : Theming.ZoomWindow
             FontFamily = Monospace,
             Padding = MessagePadding,
         };
+        _messageBox.ContextFlyout = BuildMessageFlyout();
 
         _messageRuler = new TextRulerOverlay(_messageBox, MessagePadding)
         {
@@ -916,6 +923,31 @@ public sealed class CommitDialog : Theming.ZoomWindow
         rightPanel.Children.Add(rightSplitter);
         rightPanel.Children.Add(bottom);
 
+        // The splitter must not squeeze the commit region below its buttons, or Commit
+        // itself slides out of sight (upstream's splitRight.Panel2MinSize, corrected in
+        // 7345ec7ba to count the margins and padding too). The vertical StackPanel
+        // measures its children with unlimited height, so their desired sizes (margins
+        // included) are the full column even while the row is being squeezed; the
+        // option buttons that settings hide are left out, as they take no room.
+        RowDefinition commitRow = rightPanel.RowDefinitions[3];
+        bottom.LayoutUpdated += (_, _) =>
+        {
+            double buttons = commitButtons.Margin.Top + commitButtons.Margin.Bottom;
+            foreach (Control c in commitButtons.Children)
+            {
+                if (c.IsVisible)
+                {
+                    buttons += c.DesiredSize.Height;
+                }
+            }
+
+            double min = Math.Ceiling(bottom.Margin.Top + _statusText.DesiredSize.Height + buttons);
+            if (min > 0 && Math.Abs(commitRow.MinHeight - min) >= 1)
+            {
+                commitRow.MinHeight = min;
+            }
+        };
+
         // ---- top region: left | right split (upstream's splitMain) ----
         Grid split = new()
         {
@@ -953,6 +985,15 @@ public sealed class CommitDialog : Theming.ZoomWindow
         // the loader's thread, hence the hop onto the UI thread.
         TranslationService.LanguageChanged += OnLanguageChanged;
         Closed += (_, _) => TranslationService.LanguageChanged -= OnLanguageChanged;
+
+        // A filter typed just before closing must not fire 250 ms later on the closed
+        // dialog (upstream f9ad0d410 disposes its throttled subscriptions for the same
+        // reason): a DispatcherTimer keeps ticking until it is stopped.
+        Closed += (_, _) =>
+        {
+            _unstagedPane.Timer.Stop();
+            _stagedPane.Timer.Stop();
+        };
 
         // "Refresh dialog on form focus": the user typically alt-tabs out to edit a
         // file and comes back, so the lists are re-read on activation. Off by default,
@@ -4281,6 +4322,79 @@ public sealed class CommitDialog : Theming.ZoomWindow
         }
     }
 
+    /// <summary>
+    ///  The message box's own context menu: the editing commands the theme's default
+    ///  flyout offers, then upstream's "Word wrap (except subject line)" (95a329766,
+    ///  FormCommit.Message_ContextMenuPopulating), placed after them as upstream inserts
+    ///  it at the first separator of the spell checker's menu.
+    /// </summary>
+    private MenuFlyout BuildMessageFlyout()
+    {
+        MenuItem cut = new();
+        cut.Click += (_, _) => _messageBox.Cut();
+        MenuItem copy = new();
+        copy.Click += (_, _) => _messageBox.Copy();
+        MenuItem paste = new();
+        paste.Click += (_, _) => _messageBox.Paste();
+        MenuItem selectAll = new();
+        selectAll.Click += (_, _) => _messageBox.SelectAll();
+        MenuItem wrapBody = new();
+        wrapBody.Click += (_, _) => WordWrapMessageBody();
+
+        MenuFlyout flyout = new()
+        {
+            Items = { cut, copy, paste, selectAll, new Separator(), wrapBody },
+        };
+
+        // Captions and states are read at opening time, so a language switch or a
+        // selection made since the last opening is always reflected.
+        flyout.Opening += (_, _) =>
+        {
+            cut.Header = MenuText.Escape(T("Cut"));
+            copy.Header = MenuText.Escape(T("Copy"));
+            paste.Header = MenuText.Escape(T("Paste"));
+            selectAll.Header = MenuText.Escape(T("Select all"));
+            wrapBody.Header = MenuText.Escape(RevisionFilterDialog.StripMnemonic(
+                T("FormCommit/_wordWrapCommitMessageBody.Text", "&Word wrap (except subject line)")));
+            cut.IsEnabled = _messageBox.CanCut;
+            copy.IsEnabled = _messageBox.CanCopy;
+            paste.IsEnabled = _messageBox.CanPaste;
+        };
+
+        return flyout;
+    }
+
+    /// <summary>
+    ///  Wraps every body line longer than the per-line limit, on demand, whether or not
+    ///  auto-wrap is on; the subject line is left as it is. Without a configured limit
+    ///  upstream wraps at 72 columns, the conventional body width, and so does this.
+    /// </summary>
+    private void WordWrapMessageBody()
+    {
+        const int DefaultBodyLineLimit = 72;
+        int limit = _prefs.CommitValidationMaxCharsPerLine > 0
+            ? _prefs.CommitValidationMaxCharsPerLine
+            : DefaultBodyLineLimit;
+
+        string text = _messageBox.Text ?? string.Empty;
+        string[] lines = text.Split('\n');
+        for (int i = 1; i < lines.Length; i++)
+        {
+            lines[i] = WrapLine(lines[i], limit);
+        }
+
+        string wrapped = string.Join('\n', lines);
+        if (string.Equals(wrapped, text, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // Each break replaces a space, so the text keeps its length and the caret its place.
+        int caret = _messageBox.CaretIndex;
+        _messageBox.Text = wrapped;
+        _messageBox.CaretIndex = Math.Clamp(caret, 0, wrapped.Length);
+    }
+
     // Breaks <paramref name="line"/> at the last space at or before each limit. Returns
     // it unchanged when no such space exists, so a long unbroken token survives intact.
     private static string WrapLine(string line, int limit)
@@ -4368,6 +4482,11 @@ public sealed class CommitDialog : Theming.ZoomWindow
             },
         };
 
+        // Esc declines, like the Cancel button and the title bar's close: picked stays -1.
+        // Without it a question made only of buttons ignored Esc altogether, the
+        // "reset selected lines" confirmation among them (upstream d81ffaee9, #6052).
+        DialogKeys.InstallEscapeClose(confirm);
+
         await confirm.ShowDialog(this);
         return picked;
     }
@@ -4448,7 +4567,8 @@ public sealed class CommitDialog : Theming.ZoomWindow
         WorkingDirStatus Status,
         bool Merging,
         string MergeMessage,
-        int HiddenByIndexFlag);
+        int HiddenByIndexFlag,
+        bool? ShowUntrackedFromConfig);
 
     // True when the repository has an in-progress merge, i.e. MERGE_HEAD exists in
     // the REAL git directory. That is not always "<repo>/.git": in a linked worktree
@@ -4522,6 +4642,7 @@ public sealed class CommitDialog : Theming.ZoomWindow
     private void Reload()
     {
         string repo = _repoPath;
+        bool readUntrackedConfig = !_untrackedConfigApplied;
         Async.OffUi(
             () =>
         {
@@ -4550,12 +4671,31 @@ public sealed class CommitDialog : Theming.ZoomWindow
                 hidden = 0;
             }
 
-            return new ReloadSnapshot(status, merging, mergeMessage, hidden);
+            bool? showUntracked = null;
+            if (readUntrackedConfig)
+            {
+                try
+                {
+                    showUntracked = GitContext.CreateModule(repo).GetEffectiveSetting("status.showuntrackedfiles") != "no";
+                }
+                catch
+                {
+                    // Unreadable config: keep showing them, git's own default.
+                }
+            }
+
+            return new ReloadSnapshot(status, merging, mergeMessage, hidden, showUntracked);
         },
             snapshot =>
         {
             WorkingDirStatus status = snapshot.Status;
             _hiddenByIndexFlag = snapshot.HiddenByIndexFlag;
+            if (!_untrackedConfigApplied && snapshot.ShowUntrackedFromConfig is bool showUntrackedFromConfig)
+            {
+                _showUntracked = showUntrackedFromConfig;
+                _untrackedConfigApplied = true;
+            }
+
             ApplyMergeState(snapshot);
 
             // Unmerged paths are shown inside the unstaged list with a "U" status,

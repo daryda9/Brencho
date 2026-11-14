@@ -1323,7 +1323,7 @@ public sealed class MainWindow : Theming.ZoomWindow
             }
         };
 
-        _diff.BlameRequested += path => ShowInBottom(_blameTab, () => _blame.ShowBlame(_repoPath!, path));
+        _diff.BlameRequested += path => Async.Run(() => BlameFromDiffAsync(path), "blame from diff");
         _diff.FileHistoryRequested += path => OpenFileHistoryWindow(path);
         // Safe to wire now that the grid guards against rebind re-entrancy (0.19).
         _diff.FilterFileInGridRequested +=
@@ -3530,6 +3530,34 @@ public sealed class MainWindow : Theming.ZoomWindow
         {
             RefreshAll();
         }
+    }
+
+    // The diff blames its file at HEAD. A repository without commits has nothing to
+    // blame yet and git fails with "does not have any commits yet": keep the diff on
+    // screen instead of trading it for a blame tab with only that error in it
+    // (upstream a8cb9e786, RevisionDiffControl.ShowSelectedFileBlameAsync).
+    private async Task BlameFromDiffAsync(string path)
+    {
+        string? repoPath = _repoPath;
+        if (repoPath is null)
+        {
+            return;
+        }
+
+        bool hasCommit = await Task.Run(() => !GitContext.CreateModule(repoPath).GetCurrentCheckout().IsZero)
+            .ConfigureAwait(true);
+        if (!string.Equals(repoPath, _repoPath, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (!hasCommit)
+        {
+            _bottom.SelectedItem = _diffTab;
+            return;
+        }
+
+        ShowInBottom(_blameTab, () => _blame.ShowBlame(repoPath, path));
     }
 
     private void ShowInBottom(TabItem tab, Action show)
