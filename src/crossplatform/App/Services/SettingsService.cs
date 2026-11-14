@@ -68,13 +68,11 @@ public sealed class AppPreferences
     ///  (<c>AppSettings.DontConfirmResolveConflicts</c>). Read by
     ///  <see cref="ConflictFlow.HandleAsync"/>.
     ///
-    ///  <para>File-only for now. Upstream drives it from the <b>Confirmations</b>
-    ///  settings page (<c>ConfirmationsSettingsPage.cs:36</c>, inverted:
-    ///  <c>chkResolveConflicts</c> checked = ask), and the port has <b>no</b>
-    ///  Confirmations page at all — none of that page's seventeen checkboxes is
-    ///  ported. Adding this one alone would be a page of one, so the flag lives in
-    ///  <c>app-settings.json</c> until that page exists. Off by default, i.e. the
-    ///  question is asked, exactly like upstream.</para>
+    ///  <para>Set from the question itself: its "Don't show again" checkbox
+    ///  (upstream 0e25814d0) writes it, but only on Yes, since the flag means
+    ///  "answer Yes without asking". The port still has no <b>Confirmations</b>
+    ///  settings page to clear it; until then, edit <c>app-settings.json</c>.
+    ///  Off by default, i.e. the question is asked, exactly like upstream.</para>
     /// </summary>
     public bool DontConfirmResolveConflicts { get; set; }
 
