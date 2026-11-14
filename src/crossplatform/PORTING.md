@@ -3418,6 +3418,62 @@ visibile di suo, non serve altro.
 L'ordine è quello della lista salvata, quindi la persistenza era già scritta: verificato chiudendo e
 riaprendo (`wt-alpha`, `git_ext_mod` nell'ordine trascinato).
 
+## M231 (2026-11-14) — allineamento con `upstream/master` (111 commit) e fix riportati
+
+> Dall'utente: «pulla le ultime commit che hanno fatto sulla repo originale di gitextension, capisci
+> cosa è cambiato e allinea la nostra repo alle ultime modifiche se ha senso per il nostro progetto».
+
+### Il merge (`c3e305b0b`)
+Da `8cbe7c9f2` (M108, 6 agosto) a `8cb16b370` (13 novembre), versione 7.2.1 compresa. Conflitti:
+quattro workflow che upstream ha modificato e noi avevamo cancellato (restano cancellati) e
+`ProcessExtensions.cs`, dove convivono il nostro fallback SIGINT per Linux e il nuovo
+`OpenProcess`/`NtQueryInformationProcess` di upstream (solo Windows, per ignorare
+`fsmonitor--daemon` in `IsRunningGitProcess`). Build a zero avvisi e 11 banchi verdi **prima** di
+committare il merge. Arrivano gratis dal core: filtro dei ref delle sessioni agentiche in
+`GetRefs`, `Setting<T>` in `AppSettings` (il port compila così com'è), fast-forward esplicito nel
+merge, normalizzazione dei nomi dei branch, file di impostazioni illeggibile conservato, path
+shortening per filesystem, link esterni con pattern vuoto, nomi dei tool di diff/merge su Linux.
+
+Il riporto dei commit WinForms è stato diviso in quattro aree, ciascuna in un worktree a parte, e
+i commit sono stati presi con cherry-pick. Il resto (traduzioni, CI, VS integration, installer
+Windows, WSL visto da Windows) non si applica.
+
+### Griglia delle revisioni e ref (`5cf967326`)
+- **Portati.** `c584b9740` + `34d6748f9`: i marcatori `refs/bisect/*` sono un tipo di ref a sé (prima l'euristica della barra li prendeva per remote: colore sbagliato, spariti col toggle, offerti nel menu come branch). Glifo BisectGood/BisectBad, ordinati per primi come `SortRefs`, tooltip con le stringhe dell'upstream, visibili qualunque toggle. `a9c0918f4`: con un solo remote l'etichetta mostra il cloud al posto di `remote/` (nome completo nel tooltip); `BranchTagRow.Remote` da `IGitRef.Remote`.
+- **Già coperti.** `54f96efab` (`_loadGeneration`/`_loadCts`); `4098d799e`, `c16194306`, `554c33041` (ref delle sessioni agentiche esclusi dal `GetRefs` del core; il walk del port non usa `--all`); `72373e530` (Simplify merges già legato al full history in `FileHistoryView`); `96ef2d6ed`, `cb08b179d` (solo core).
+- **Non applicabili.** `939de0a12` (nessun filtro del menu per etichetta, nessun nestled ref); `1c98cad37` (ToolTip WinForms unico; nel port è per riga); `5c18f5bce` (niente revision links).
+- **Candidata futura.** `40e2457de`, corsie evidenziate al passaggio sull'etichetta: il motore c'è (`_highlightAnchor`, `ComputeReachability`), servono flag "relative" mutabili in `RevisionGraphControl` per non ricostruire con `RebindRows` l'etichetta sotto il puntatore.
+
+### Lista file, diff, file viewer, dialogo di commit (`2ec85c998`)
+- **Portati.** `a8cb9e786` (blame chiesto dal diff in un repo senza commit: resta sul Diff, `MainWindow.BlameFromDiffAsync`); `130f9ba7d` ("Show untracked files" del dialogo di commit parte da `status.showuntrackedfiles`); `d81ffaee9` (Esc annulla le conferme del dialogo di commit, `DialogKeys.InstallEscapeClose` in `ChooseAsync`); `95a329766` ("Word wrap (except subject line)" nel menu del messaggio, che ora ha un flyout proprio con Cut/Copy/Paste/Select all); `7345ec7ba` (`MinHeight` della zona di commit da pulsanti, stato e margini: lo splitter non nasconde più Commit); `f9ad0d410` (timer dei filtri fermati alla chiusura); `d744586c6` (regex del push rifiutato tollerante alle sequenze ANSI, `PushRefsService.DetectRejection`).
+- **Già coperti.** `e2a7dc3ab` per WEBP (magic byte in `ImageFormats`); `0174ba1cc` (`repoPath` fissato alla richiesta); `a36f1d31b` (pennelli statici); `981e4b15f` (stato riletto dopo ogni unstage).
+- **Non portabili / non applicabili.** `e2a7dc3ab` per AVIF (SkiaSharp 2.88.9 non ha il codec: `SKBitmap.Decode` → null, verificato); `1f4c48971`, `d2b1e3528`, `e265607b6` (solo WinForms); `36d8b34f6` (nessuna selezione al focus); `68a9100a9` (splitter in star, senza distanze salvate).
+- **Candidate future.** `fd1a1b0e7` e `52d08e996`: patch per riga e "Reset file to selected/parent" nel diff delle revisioni, che il port non ha.
+
+### Status monitor, settings, plugin, clone (`15b706d71`, `44b23a009`, `8a525b10b`)
+- **Portati.** `023f29416`: i watcher separati del git dir e del common dir (worktree collegati, gitdir esterni) non ascoltavano `Renamed`; git scrive index e ref come `<nome>.lock` poi rinomina, quindi un commit da terminale in un worktree collegato non faceva scattare il refresh (`RepositoryWatcherService`). `8cb16b370`: il filtro fsmonitor copre anche la directory del daemon e il socket `.ipc`. `c422c7771` + `1586a6db1`: Git config avanzato a combo di valori con "(not set)", 12 chiavi (pull.ff, status.showuntrackedfiles, core.untrackedcache, core.fsmonitor…), id `lbl*`, link alla doc di git-config; un valore fuori lista (es. `pull.rebase=interactive`) ora è conservato invece di essere cancellato all'Applica. `1cdac5aba`: livello Local/Global ricordato. `e418afa9e`: `JsonSettingsFile` copia un file illeggibile in `.unreadable` prima di sovrascriverlo (+4 casi in settings-stores). `af375e1be`: il clone ricorda "Initialize all submodules". `5cbf20964`: un assembly plugin con `ReflectionTypeLoadException` è scartato intero.
+- **Già coperti.** `1a80a42d3` (nessun controllo "git in esecuzione" nel port), `c00bc2696` (`VerifyService` ha già il ripiego per commit), `1b5022faa` (ConfigureRemotes mai portato), `c249cc986` (compila così com'è).
+- **Non applicabili.** `71b8548e8` (WSL visto da Windows), `c82c58c88` (il BackgroundFetch del port usa un `PeriodicTimer`), `c54e27e85`, `c07913203` (cache che il port non usa), `452a25e04` (PropertyGrid), `96872c1ae` (nessuna scansione `IScriptOptionsProvider`), `648dd4cc7`, `d9f1630b0` (shell di Git for Windows).
+- **Candidate future.** Fetch automatico dopo l'aggiunta di un remote (da `1b5022faa`); nascondere `rebase.updaterefs` se git non lo supporta.
+
+### Conflitti, rebase, dialoghi, worktree, pannello sinistro (`9256361a3` + `f3e11823a`)
+1. **Cancellato da entrambi i lati** (da `a4d51838f`): `ConflictKind.BothDeleted` (solo lo stage 1) ha la sua descrizione, con la stringa upstream `_fileDeletedLocallyAndRemotely`; prima cadeva in "esiste solo in remoto".
+2. **Rebase continuato da solo se rerere ha già risolto** (da `d9a782308`). Riconoscimento **strutturale**: il git localizzato non stampa "using previous resolution" (misurato: "…usando la risoluzione precedente") e `MERGE_RR` è già vuoto con autoupdate. Segnale: rebase fermo, nessun file `amend`, `rr-cache` presente, nulla di non risolto, qualcosa in stage (`edit`, `break` ed `exec` fallito non hanno nulla in stage). Il ciclo si ferma se lo step non avanza o se c'è un messaggio da chiedere.
+3. **"Non mostrare più" sulla domanda di risolvere i conflitti** (da `0e25814d0`): scrive `DontConfirmResolveConflicts`, solo con Sì. Nuovo `ConflictFlow.ConfirmSuppressibleAsync` riusabile.
+4. **Esc non è una risposta** (da `d41fe0746`): il prompt di riapplicazione dello stash non memorizza più "Never" con Esc.
+5. **Worktree principale mai eliminabile** dal pannello sinistro (da `065da3680`); **pulsante Worktree sempre visibile**, disabilitato fuori da una working dir valida (da `84bbeb91e`); tolta la sonda `WorktreeCount`, un processo git per ogni refresh.
+6. **Albero a priorità Background** (da `893bb8033`).
+- **Già coperti.** `656a626c1`, `c175c97ad`, `afc512395`, `1b5d6c659`, `35ae6a77f`, `f425acf4a`, `a24cadba7`, `7fa2aaba9`, `7c8ce6639`.
+- **Non portabili.** `277633b76` (WinForms), `75ca7f969` (niente cache avatar), `f6a031253`, `5e40ffe58` (dimensione testo di Windows), `b1d646bba` (niente combo tag/branch), `6c01caffe` (ConEmu).
+- **Candidata futura.** `af8e3a7e5` "Edit commit by fixup commit & rebase": manca il commit in modalità fixup.
+- merge-resolve: nuovi casi both-deleted, auto-continue rerere dalla barra e dal dialogo, step `edit` lasciato fermo.
+
+### Candidate future raccolte da questo giro
+Corsie del grafo evidenziate al passaggio su un'etichetta (`40e2457de`); patch per riga e "Reset
+file to selected/parent" nel diff delle revisioni (`fd1a1b0e7`, `52d08e996`); "Edit commit by
+fixup commit & rebase" (`af8e3a7e5`); fetch dopo l'aggiunta di un remote (`1b5022faa`);
+`rebase.updaterefs` nascosto se git non lo supporta; AVIF quando SkiaSharp avrà il codec.
+
 ## M230 (2026-11-05) — la colonna del messaggio spariva con la locale italiana
 
 Sintomo (segnalato dall'utente): nel grafo niente piu' etichette dei branch, e con loro
