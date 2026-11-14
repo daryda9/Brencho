@@ -392,7 +392,17 @@ internal sealed class JsonSettingsFile<T>
     {
         try
         {
-            T doc = ReadFile();
+            T doc = ReadFile(out bool unreadable);
+
+            // The file is there but could not be parsed (a hand edit gone wrong, a disk
+            // error): what is about to be written is the defaults plus this delta, so the
+            // write would erase whatever the user had configured. Keep the old bytes next
+            // to it first, so they can still be recovered — the same rule upstream applies
+            // to GitExtensions.settings (e418afa9e).
+            if (unreadable)
+            {
+                PreserveUnreadable();
+            }
 
             foreach (Func<T, T> entry in entries)
             {
@@ -511,13 +521,20 @@ internal sealed class JsonSettingsFile<T>
 
     // The file exactly as it is on disk, with no queued mutation replayed over it — what a
     // merge has to start from.
-    private T ReadFile()
+    private T ReadFile() => ReadFile(out _);
+
+    // As above; unreadable is true when a non-empty file exists but did not parse, i.e. when
+    // the defaults returned stand in for content that is still on disk.
+    private T ReadFile(out bool unreadable)
     {
+        unreadable = false;
+        string? text = null;
         try
         {
             if (File.Exists(_path))
             {
-                T? loaded = _model.Parse(File.ReadAllText(_path));
+                text = File.ReadAllText(_path);
+                T? loaded = _model.Parse(text);
                 if (loaded is not null)
                 {
                     return _model.Sanitize(loaded);
@@ -529,7 +546,25 @@ internal sealed class JsonSettingsFile<T>
             // Missing/corrupt/unreadable → defaults.
         }
 
+        // An empty file has nothing worth keeping; a missing one is not corrupt. A file
+        // that exists but cannot even be read (text still null) is left alone too: the
+        // copy would fail the same way.
+        unreadable = !string.IsNullOrWhiteSpace(text);
         return _model.CreateDefault();
+    }
+
+    // Copies the current file to "<name>.unreadable", replacing an older copy: the newest
+    // damaged state is the one closest to what the user last had. Best-effort.
+    private void PreserveUnreadable()
+    {
+        try
+        {
+            File.Copy(_path, _path + ".unreadable", overwrite: true);
+        }
+        catch (Exception)
+        {
+            // Saving must not depend on the copy; the write goes ahead regardless.
+        }
     }
 }
 

@@ -30,8 +30,9 @@ namespace GitExtensions.Avalonia.Views;
 ///    the user picks — <i>Local for current repository</i> or <i>Global for all
 ///    repositories</i>, a cut-down port of upstream's
 ///    <c>SettingsPageHeader</c> level selector.</item>
-///   <item>The eight tri-state keys of upstream's <c>GitConfigAdvancedSettingsPage</c>
-///    (<c>pull.rebase</c>, <c>fetch.prune</c>, the two autostashes, …), written into
+///   <item>The keys of upstream's <c>GitConfigAdvancedSettingsPage</c>
+///    (<c>pull.ff</c>, <c>pull.rebase</c>, <c>fetch.prune</c>, the two autostashes,
+///    <c>core.fsmonitor</c>, …), each a value combo with "not set", written into
 ///    git config at the same chosen level. They need no consumer inside the port —
 ///    the consumer is git.</item>
 ///   <item>The three blame switches of <c>BlameViewerSettingsPage</c>
@@ -94,8 +95,15 @@ public sealed class SettingsWindow : Theming.ZoomWindow
     private readonly ComboBox _repoTabs;
     private readonly CheckBox _coloredIcons;
 
-    // One three-state checkbox per GitConfigChoices entry, same order.
-    private readonly CheckBox[] _gitConfigChecks;
+    // One value combo per GitConfigChoices entry, same order. Item 0 is "not set"
+    // (Tag null); the fixed values follow (Tag = the value); a value found in the
+    // config that is none of those is appended as one more item, so it is shown and
+    // written back verbatim instead of being lost.
+    private readonly ComboBox[] _gitConfigCombos;
+
+    // The level picked last, kept for the next time the dialog opens (upstream
+    // 1cdac5aba remembers the chosen settings layer). Null until the user picks one.
+    private static GitSettingLevel? s_lastChosenLevel;
 
     // The level the identity fields currently show, so a level change can be told
     // from the initial load and the fields reloaded for the new level.
@@ -316,36 +324,51 @@ public sealed class SettingsWindow : Theming.ZoomWindow
         (GitSettingLevel.Global, "SettingsPageHeader/GlobalRB.Text", "Global for all repositories"),
     ];
 
-    // The eight tri-state git config keys of upstream's "Git config advanced" page
-    // (GitConfigAdvancedSettingsPage.cs:19-26), with that page's own captions so the
-    // two cannot drift.
+    // The git config keys of upstream's "Git config advanced" page
+    // (GitConfigAdvancedSettingsPage.cs, after c422c7771 and 1586a6db1), in its order,
+    // with its captions and its value lists, so the two cannot drift. The trans-unit
+    // ids are upstream's new lbl* ones; a translation that still carries the old
+    // checkBox* id is found by its English source text instead.
     //
-    // Tri-state is the whole point: "set to true", "set to false" and "not set" are
-    // three different things to git — an unset pull.rebase inherits whatever a wider
-    // config level says, while an explicit false pins it. Applying therefore writes
-    // "true"/"false" for a determinate box and *unsets* the key for an indeterminate
-    // one (GitConfigSettings.SetValue(name, null) → "git config --unset").
+    // A value combo rather than a checkbox, as upstream now does: several keys are not
+    // booleans (pull.ff=only, pull.rebase=interactive, status.showuntrackedfiles=all),
+    // and the old tri-state box read those as "not set" and unset them on Apply.
+    // "Not set" stays a choice of its own — an unset key inherits whatever a wider
+    // level says, an explicit false pins it — and is written as
+    // GitConfigSettings.SetValue(name, null) → "git config --unset".
     //
     // These need no consumer inside the port: the consumer is git itself, on every
-    // pull/fetch/merge/rebase the app runs.
-    private static readonly (string Key, string TransKey, string Label)[] GitConfigChoices =
+    // pull/fetch/merge/rebase/status the app runs.
+    private static readonly string[] GitBoolValues = ["false", "true"];
+
+    private const string GitConfigDocsBaseUrl = "https://git-scm.com/docs/git-config#Documentation/git-config.txt-";
+
+    private static readonly (string Key, string TransKey, string Label, string[] Values)[] GitConfigChoices =
     [
-        ("pull.rebase", "GitConfigAdvancedSettingsPage/checkBoxPullRebase.Text",
-            "Rebase local branch when pulling (instead of merge)"),
-        ("fetch.prune", "GitConfigAdvancedSettingsPage/checkBoxFetchPrune.Text",
-            "Prune remote branches during fetch"),
-        ("merge.autostash", "GitConfigAdvancedSettingsPage/checkboxMergeAutoStash.Text",
-            "Automatically stash before doing a merge"),
-        ("rebase.autostash", "GitConfigAdvancedSettingsPage/checkBoxRebaseAutostash.Text",
-            "Automatically stash before doing a rebase"),
-        ("rebase.autosquash", "GitConfigAdvancedSettingsPage/checkBoxRebaseAutosquash.Text",
-            "Automatically squash commits when doing an interactive rebase"),
-        ("rebase.updaterefs", "GitConfigAdvancedSettingsPage/checkBoxUpdateRefs.Text",
-            "Rebase also dependent branches"),
-        ("rerere.enabled", "GitConfigAdvancedSettingsPage/checkBoxReReReEnabled.Text",
-            "Reuse recorded resolution of conflicted merges"),
-        ("rerere.autoupdate", "GitConfigAdvancedSettingsPage/checkBoxReReReAutoUpdate.Text",
-            "Automatically apply recorded resolution of conflicted merges"),
+        ("pull.ff", "GitConfigAdvancedSettingsPage/lblPullFF.Text",
+            "Fast-forward behavior when pulling", [.. GitBoolValues, "only"]),
+        ("pull.rebase", "GitConfigAdvancedSettingsPage/lblPullRebase.Text",
+            "Rebase local branch when pulling (instead of merge)", [.. GitBoolValues, "merges", "interactive"]),
+        ("fetch.prune", "GitConfigAdvancedSettingsPage/lblFetchPrune.Text",
+            "Prune remote branches during fetch", GitBoolValues),
+        ("merge.autostash", "GitConfigAdvancedSettingsPage/lblMergeAutoStash.Text",
+            "Automatically stash before doing a merge", GitBoolValues),
+        ("rebase.autostash", "GitConfigAdvancedSettingsPage/lblRebaseAutostash.Text",
+            "Automatically stash before doing a rebase", GitBoolValues),
+        ("rebase.autosquash", "GitConfigAdvancedSettingsPage/lblRebaseAutosquash.Text",
+            "Automatically squash commits when doing an interactive rebase", GitBoolValues),
+        ("rebase.updaterefs", "GitConfigAdvancedSettingsPage/lblUpdateRefs.Text",
+            "Rebase also dependent branches", GitBoolValues),
+        ("rerere.enabled", "GitConfigAdvancedSettingsPage/lblReReReEnabled.Text",
+            "Reuse recorded resolution of conflicted merges", GitBoolValues),
+        ("rerere.autoupdate", "GitConfigAdvancedSettingsPage/lblReReReAutoUpdate.Text",
+            "Automatically apply recorded resolution of conflicted merges", GitBoolValues),
+        ("status.showuntrackedfiles", "GitConfigAdvancedSettingsPage/lblStatusShowUntrackedFiles.Text",
+            "Show untracked files", ["no", "normal", "all"]),
+        ("core.untrackedcache", "GitConfigAdvancedSettingsPage/lblCoreUntrackedCache.Text",
+            "Cache the untracked files in the index", [.. GitBoolValues, "keep"]),
+        ("core.fsmonitor", "GitConfigAdvancedSettingsPage/lblCoreFsMonitor.Text",
+            "Run a file system monitor daemon per working directory", GitBoolValues),
     ];
 
     // Category names, shared by the left list and the panel heading so the two can
@@ -505,28 +528,22 @@ public sealed class SettingsWindow : Theming.ZoomWindow
             Field("GitConfigSettingsPage/label3.Text", "User name", _userName, dim),
             Field("GitConfigSettingsPage/label4.Text", "User email", _userEmail, dim));
 
-        // ---- Git config advanced: eight tri-state keys, written straight to git.
-        _gitConfigChecks = new CheckBox[GitConfigChoices.Length];
+        // ---- Git config advanced: one value combo per key, written straight to git.
+        _gitConfigCombos = new ComboBox[GitConfigChoices.Length];
         Control[] gitConfigFields = new Control[GitConfigChoices.Length];
         for (int i = 0; i < GitConfigChoices.Length; i++)
         {
-            (string key, string transKey, string label) = GitConfigChoices[i];
-
-            // IsThreeState makes the box cycle unchecked → checked → indeterminate,
-            // which is exactly the "false / true / not set" triple git understands.
-            CheckBox box = new() { IsThreeState = true };
-            Localize(box, transKey, label, $" [{key}]");
-            _gitConfigChecks[i] = box;
-            gitConfigFields[i] = box;
+            (string key, string transKey, string label, string[] values) = GitConfigChoices[i];
+            _gitConfigCombos[i] = GitConfigCombo(values);
+            gitConfigFields[i] = GitConfigField(key, transKey, label, _gitConfigCombos[i], dim);
         }
 
         Panel gitConfigPanel = CategoryPanel(
             GitConfigKey, GitConfigText,
             null, "Written directly into the git config at the level chosen above, so git "
-                + "itself obeys them — inside this app and outside it. Each box has three "
-                + "states: checked (the key is set to true), unchecked (set to false) and "
-                + "the third, filled state (the key is not set at all, so a wider config "
-                + "level or git's own default decides).",
+                + "itself obeys them — inside this app and outside it. \"(not set)\" removes "
+                + "the key from that level, so a wider config level or git's own default "
+                + "decides. The ? button opens git's documentation of the key.",
             text,
             dim,
             gitConfigFields);
@@ -1344,6 +1361,15 @@ public sealed class SettingsWindow : Theming.ZoomWindow
             _settingsLevel.SelectedIndex = 1;
             ((ComboBoxItem)_settingsLevel.Items[0]!).IsEnabled = false;
         }
+        else if (s_lastChosenLevel is { } last)
+        {
+            // Reopen on the level picked last time (upstream 1cdac5aba).
+            int index = Array.FindIndex(LevelChoices, c => c.Level == last);
+            if (index >= 0)
+            {
+                _settingsLevel.SelectedIndex = index;
+            }
+        }
 
         LoadGitConfig(SelectedLevel);
 
@@ -1480,6 +1506,14 @@ public sealed class SettingsWindow : Theming.ZoomWindow
     private void OnLevelChanged()
     {
         GitSettingLevel level = SelectedLevel;
+
+        // Only a choice the user could make counts: without a repository Global is
+        // forced, and remembering that would hide Local the next time one is open.
+        if (_repoPath is not null)
+        {
+            s_lastChosenLevel = level;
+        }
+
         if (level != _loadedLevel)
         {
             LoadGitConfig(level);
@@ -1499,16 +1533,16 @@ public sealed class SettingsWindow : Theming.ZoomWindow
         _loadingGitConfig = true;
         _userName.Text = string.Empty;
         _userEmail.Text = string.Empty;
-        foreach (CheckBox box in _gitConfigChecks)
+        foreach (ComboBox combo in _gitConfigCombos)
         {
-            box.IsChecked = null;
+            ShowGitConfigValue(combo, null);
         }
 
         _ = Task.Run(() =>
         {
             string name = string.Empty;
             string email = string.Empty;
-            bool?[] flags = new bool?[GitConfigChoices.Length];
+            string?[] values = new string?[GitConfigChoices.Length];
             try
             {
                 IConfigValueStore store = ConfigStore(level);
@@ -1516,7 +1550,7 @@ public sealed class SettingsWindow : Theming.ZoomWindow
                 email = store.GetValue("user.email") ?? string.Empty;
                 for (int i = 0; i < GitConfigChoices.Length; i++)
                 {
-                    flags[i] = ToTriState(store.GetValue(GitConfigChoices[i].Key));
+                    values[i] = store.GetValue(GitConfigChoices[i].Key);
                 }
             }
             catch (Exception)
@@ -1535,9 +1569,9 @@ public sealed class SettingsWindow : Theming.ZoomWindow
 
                 _userName.Text = name;
                 _userEmail.Text = email;
-                for (int i = 0; i < _gitConfigChecks.Length; i++)
+                for (int i = 0; i < _gitConfigCombos.Length; i++)
                 {
-                    _gitConfigChecks[i].IsChecked = flags[i];
+                    ShowGitConfigValue(_gitConfigCombos[i], values[i]);
                 }
 
                 _loadingIdentity = false;
@@ -1546,17 +1580,75 @@ public sealed class SettingsWindow : Theming.ZoomWindow
         });
     }
 
-    // git's boolean spellings (git-config(1) "bool"). A missing key — and any value that
-    // is not a boolean, e.g. pull.rebase=interactive — reads as indeterminate, and
-    // leaving such a box alone leaves the value alone. Upstream's SettingsToPage maps
-    // the same way.
-    private static bool? ToTriState(string? value)
-        => value switch
+    // A combo holding "(not set)" and the key's documented values; see _gitConfigCombos.
+    private ComboBox GitConfigCombo(string[] values)
+    {
+        ComboBox combo = new() { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 160 };
+        ComboBoxItem unset = new();
+        Localize(unset, null, "(not set)");
+        combo.Items.Add(unset);
+        foreach (string value in values)
         {
-            "true" or "yes" or "on" or "1" => true,
-            "false" or "no" or "off" or "0" or "" => false,
-            _ => null,
-        };
+            combo.Items.Add(new ComboBoxItem { Content = value, Tag = value });
+        }
+
+        // How many items are fixed; anything after them is a value read from the config.
+        combo.Tag = combo.Items.Count;
+        combo.SelectedIndex = 0;
+        return combo;
+    }
+
+    // Caption with the raw key (as upstream appends it), then the combo and a button to
+    // git's documentation of the key, which upstream links from an info icon.
+    private Control GitConfigField(string key, string transKey, string label, ComboBox combo, IBrush dim)
+    {
+        TextBlock caption = new() { Foreground = dim, FontSize = 12, TextWrapping = TextWrapping.Wrap };
+        Register(() => caption.Text = TranslationService.T(transKey, label) + $" [{key}]");
+
+        string url = GitConfigDocsBaseUrl + key.Replace(".", "", StringComparison.Ordinal).ToLowerInvariant();
+        Button help = new() { Content = "?", Margin = new Thickness(6, 0, 0, 0), Padding = new Thickness(8, 2) };
+        ToolTip.SetTip(help, url);
+
+        // xdg-open shells out: keep it off the UI thread.
+        help.Click += (_, _) => _ = Task.Run(() => new ExternalToolService().OpenUrl(url));
+
+        StackPanel row = new() { Orientation = Orientation.Horizontal, Children = { combo, help } };
+        return new StackPanel { Spacing = 4, Children = { caption, row } };
+    }
+
+    // Selects value in combo: "(not set)" for null, the matching item otherwise, or one
+    // extra item carrying the value verbatim ("yes", a hook path for core.fsmonitor, …)
+    // when it is none of the documented ones — so applying writes back what was read.
+    private static void ShowGitConfigValue(ComboBox combo, string? value)
+    {
+        int fixedCount = (int)combo.Tag!;
+        while (combo.Items.Count > fixedCount)
+        {
+            combo.Items.RemoveAt(combo.Items.Count - 1);
+        }
+
+        if (value is null)
+        {
+            combo.SelectedIndex = 0;
+            return;
+        }
+
+        for (int i = 1; i < fixedCount; i++)
+        {
+            if (((ComboBoxItem)combo.Items[i]!).Tag is string known && known == value)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        combo.Items.Add(new ComboBoxItem { Content = value, Tag = value });
+        combo.SelectedIndex = fixedCount;
+    }
+
+    // The value to write: null ("git config --unset") for "(not set)".
+    private static string? SelectedGitConfigValue(ComboBox combo)
+        => (combo.SelectedItem as ComboBoxItem)?.Tag as string;
 
     // A read/write view of one git config level. GitConfigSettings runs
     // "git config --local|--global", i.e. exactly what upstream's settings pages use
@@ -1629,8 +1721,8 @@ public sealed class SettingsWindow : Theming.ZoomWindow
             string? name = _userName.Text?.Trim();
             string? email = _userEmail.Text?.Trim();
 
-            // Snapshot the tri-states on the UI thread; the write runs off it.
-            bool?[] flags = Array.ConvertAll(_gitConfigChecks, box => box.IsChecked);
+            // Snapshot the values on the UI thread; the write runs off it.
+            string?[] values = Array.ConvertAll(_gitConfigCombos, SelectedGitConfigValue);
 
             // git config is blocking; the dialog must not freeze on a slow repository.
             // Identity and the advanced keys share one store and one Save(), so the two
@@ -1647,15 +1739,12 @@ public sealed class SettingsWindow : Theming.ZoomWindow
                     store.SetValue("user.name", string.IsNullOrEmpty(name) ? null : name);
                     store.SetValue("user.email", string.IsNullOrEmpty(email) ? null : email);
 
-                    // The tri-state contract: an indeterminate box passes null, which
-                    // GitConfigSettings.Save turns into "git config --unset" — writing
-                    // "false" instead would be a different thing entirely, pinning the
-                    // key against whatever a wider level says.
-                    for (int i = 0; i < flags.Length; i++)
+                    // "(not set)" passes null, which GitConfigSettings.Save turns into
+                    // "git config --unset" — writing "false" instead would be a different
+                    // thing entirely, pinning the key against whatever a wider level says.
+                    for (int i = 0; i < values.Length; i++)
                     {
-                        store.SetValue(
-                            GitConfigChoices[i].Key,
-                            flags[i] switch { true => "true", false => "false", _ => null });
+                        store.SetValue(GitConfigChoices[i].Key, values[i]);
                     }
 
                     store.Save();

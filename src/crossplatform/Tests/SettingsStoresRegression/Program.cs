@@ -432,6 +432,33 @@ Stopwatch total = Stopwatch.StartNew();
         Read(uiStateFile).RootElement.GetProperty("Language").GetString() == "Italiano");
 }
 
+// ---------------------------------------------------------------- unreadable file
+
+{
+    // A file that exists but does not parse reads as defaults, so the next write replaces
+    // it with defaults plus one delta. Its bytes must survive next to it, the way upstream
+    // keeps GitExtensions.settings.unreadable (e418afa9e), or a hand edit gone wrong costs
+    // the user everything that file held. Last, because it deliberately loses the state.
+    const string garbage = "{ \"Language\": \"Italiano\", oops";
+    string preserved = uiStateFile + ".unreadable";
+    File.Delete(preserved);
+    File.WriteAllText(uiStateFile, garbage);
+
+    UiStateService service = new();
+    service.Update(s => s.SystemThemeSeen = "Dark");
+    Expect("unreadable: the write after a corrupt read still flushes", service.Flush(TimeSpan.FromSeconds(10)));
+    Expect("unreadable: the corrupt bytes are kept beside the file",
+        File.Exists(preserved) && File.ReadAllText(preserved) == garbage);
+    Expect("unreadable: the file itself is whole again",
+        Read(uiStateFile).RootElement.GetProperty("SystemThemeSeen").GetString() == "Dark");
+
+    // A readable file is backed up by nobody: the copy is for damage only.
+    File.Delete(preserved);
+    service.Update(s => s.SystemThemeSeen = "Light");
+    service.Flush(TimeSpan.FromSeconds(10));
+    Expect("unreadable: a healthy file leaves no copy", !File.Exists(preserved));
+}
+
 // ---------------------------------------------------------------- verdict
 
 total.Stop();
