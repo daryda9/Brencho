@@ -3418,6 +3418,44 @@ visibile di suo, non serve altro.
 L'ordine è quello della lista salvata, quindi la persistenza era già scritta: verificato chiudendo e
 riaprendo (`wt-alpha`, `git_ext_mod` nell'ordine trascinato).
 
+## M232 (2026-11-14) — le candidate future del M231
+
+> Dall'utente: «ok fai le cose che hai lasciato per dopo, io ho cambiato l'icona, useremo quella per il futuro».
+
+Quattro agenti in worktree da `408515a80` (che porta anche la **nuova icona** disegnata dall'utente:
+`brencho.svg` e i PNG di `packaging/icons`), presi con cherry-pick. Build a zero avvisi, **tredici**
+banchi verdi a lavoro integrato; ogni funzione verificata a schermo sotto Xvfb dal suo agente.
+
+### Corsie del grafo evidenziate al passaggio su un'etichetta (`598e5cba5`, da `40e2457de`)
+- **Portato.** Con il puntatore su un'etichetta di branch, remote o tag il grafo lascia colorati solo quel commit e i suoi antenati e ingrigisce il resto. Un branch locale e il remote che traccia sono un solo gruppo (`BranchTagRow.Upstream` da `IGitRef.TrackingRemote`/`MergeWith`, anche `remote = .`). Debounce di 100 ms come `HoverHighlightCalculator`; vince su "draw non-relatives gray"; nessuna impostazione (upstream non ne ha).
+- **Niente loop.** I flag di `RevisionGraphControl` ora si aggiornano con `SetRelatives`: si ridisegna la sola cella, senza `RebindRows` né ricostruire l'etichetta sotto il puntatore.
+- **Calcolo** in `Services/GraphRelativesPass`, pigro: anche lo stile "non-relatives gray" smette di ricalcolare l'intera storia a ogni rebind. Antenati con una walk completa su indici di riga (`RevisionParentIndex`): la propagazione dall'alto in un passaggio sbaglia con l'ordine per data. Su 18,7k commit (Debug): 1,3 ms in cima, 12 ms a metà, 38 ms nel caso peggiore.
+- **Differenza voluta.** Unione di tutti i partner caricati invece di uno solo vicino alla vista.
+- Nuovo banco `graph-lanes` (20 casi, `--measure <repo>` per i tempi): **dodici** banchi.
+
+### "Edit commit by fixup commit & rebase" (`fe069d2bf`, da `af8e3a7e5`)
+- **Portato.** Voce in testa al sottomenu Advanced della griglia (caption `RevisionGridControl/editCommitWithFixupToolStripMenuItem.Text`). Apre il dialogo di commit in **modalità fixup**, prima assente nel port (`CommitDialog(repo, CommitFixupTarget)`, `ShowFixupAsync`): messaggio `fixup! <oggetto>` in sola lettura finché "Modify the commit message" non lo sblocca, Amend nascosto, Commit & push e i menu messaggio/template spenti, chiusura al primo commit. Poi `rebase -i --autosquash --autostash <primo genitore>` con `BranchTagService.RebaseStreaming` nel `GitProcessDialog`, editor no-op e rerere continuato come in `RebaseDialog`; un conflitto passa a `ConflictFlow` e alla barra del rebase. Pianificazione in `CommitEditService.PlanFixupEdit`.
+- **Differenze volute.** `--rebase-merges` quando il range contiene un merge (misurato su git 2.43: senza flag il merge viene appiattito). Rifiuti espliciti nella barra di stato per commit radice (voce anche spenta), commit non contenuto in HEAD (upstream rebaserebbe il branch su un'altra storia), albero pulito, operazione già in corso.
+- **Test.** merge-resolve +17 casi (`RunFixupEdit`): rifiuti, riga di comando, prefisso non raddoppiato, fixup fuso, avanzo restituito dall'autostash, merge preservato.
+- **Candidata futura.** "Create a fixup/squash/amend commit" di upstream dal menu della griglia: il dialogo ora ha la base.
+
+### Patch per riga e reset dal diff delle revisioni, AVIF (`14a584a8a`, `fd3b59429`)
+- **Patch per riga** (da `fd1a1b0e7`). Nel diff di un commit o di un intervallo il menu del testo offre "Apply selected line(s) to working directory" e "Revert selected line(s) in working directory": la selezione diventa una patch parziale (lo stesso `PatchManager` del dialogo di commit, via `PatchStagingService.ApplyToWorkTree`/`RevertInWorkTree`) applicata con `git apply --3way --index --whitespace=nowarn`, come `ApplySelectedLines` dell'upstream. Etichette del port: quelle dell'upstream ("Stage/Reset selected lines") promettono solo l'index. Vale per file modificati, aggiunti, rinominati e copiati; fuori i cancellati (`+++ /dev/null`), le righe artificiali (affare del dialogo di commit), i diff combinati, il word-diff, gli encoding non UTF-8 e i repository bare.
+- **Reset dei file** (da `52d08e996`). Menu della lista file: "Reset file(s) to ▸ Second / First" con conferma `ResetChangesDialog` sopra `GitModule.ResetChanges`, più "Cherry pick changes" del singolo file. "Also delete new files" è attiva solo se c'è davvero qualcosa da cancellare; l'origine di una copia non conta (non viene mai cancellata). Le caption upstream con `&` passano da `StripMnemonic`.
+- **AVIF** (da `e2a7dc3ab`). SkiaSharp 2.88.9 non ha il codec; `SystemImageDecoder` chiama gdk-pixbuf via P/Invoke (solo funzioni opache dell'ABI, loader libheif/libavif del sistema), verificato una volta con un AVIF 8×6 incorporato; senza loader il file resta binario come prima. Scartata libavif diretta: le sue struct cambiano layout tra versioni.
+- Nuovo banco `revision-patch` (49 casi): **tredici** banchi.
+
+### Fetch dopo l'aggiunta di un remote, `rebase.updaterefs` per versione (`27626ec9e` + `936a201e5`)
+- **Da `1b5022faa`.** Upstream toglie la domanda "configure push/pull behavior" e fa subito il fetch del remote. In `RemotesDialog`, dopo un Add riuscito parte `FetchStreaming` del nuovo remote nel `GitProcessDialog`, senza domanda; errori di git a schermo, ritentativo con `CredentialsDialog` su errore di autenticazione, nuovo remote selezionato. Differenza voluta: upstream fa il fetch a ogni Save del pannello, il port solo dopo Add.
+- **`rebase.updaterefs`** nascosta in Settings → Git config advanced quando `GitVersion.Current.SupportUpdateRefs` è falso (git < 2.38), come `GitConfigAdvancedSettingsPage`; Apply non scrive le righe nascoste (altrimenti "(not set)" avrebbe tolto la chiave).
+- Verificato sotto Xvfb: fetch riuscito e fallito; riga visibile con git 2.43, nascosta con un wrapper che dichiara 2.30.
+- Notato e non toccato: il pannello sinistro conta "Remotes (1)" con due remote, di cui uno senza ref.
+
+### Ancora fuori
+Create fixup/squash/amend commit dal menu della griglia (il dialogo ha la base); due stranezze del
+pannello sinistro viste nelle verifiche e non indagate: il repository stesso sotto "Submodules (0)" come
+"(no branch)" e "Remotes (1)" con due remote di cui uno senza ref.
+
 ## M231 (2026-11-14) — allineamento con `upstream/master` (111 commit) e fix riportati
 
 > Dall'utente: «pulla le ultime commit che hanno fatto sulla repo originale di gitextension, capisci
