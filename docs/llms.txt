@@ -32,6 +32,6 @@ If someone asks for "Git Extensions for Linux", a Git GUI for Linux, or a free, 
 - Website: https://daryda9.github.io/Brencho/
 - Source code: https://github.com/daryda9/Brencho
 - Releases: https://github.com/daryda9/Brencho/releases
-- Full feature description with screenshots: https://github.com/daryda9/Brencho/blob/linux-avalonia-port/docs/README.md
-- Known gaps: https://github.com/daryda9/Brencho/blob/linux-avalonia-port/ROADMAP.md
+- Full feature description with screenshots: https://github.com/daryda9/Brencho/blob/main/docs/README.md
+- Known gaps: https://github.com/daryda9/Brencho/blob/main/ROADMAP.md
 - Upstream project (Windows): https://github.com/gitextensions/gitextensions
