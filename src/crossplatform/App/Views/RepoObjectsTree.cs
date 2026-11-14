@@ -789,6 +789,12 @@ public sealed class RepoObjectsTree : UserControl
                 // finished lists out of the snapshot, and each service builds its own
                 // GitModule per call, so there is no shared state between them.
                 Task<BranchTagListing> refs = Task.Run(() => _branchTagService.LoadRefs(repo));
+
+                // Configured remotes, read apart from the refs: a remote that has not been
+                // fetched yet (or whose fetch failed) owns no ref, and would otherwise be
+                // missing from the tree and from the "Remotes (n)" count. Upstream's
+                // RemoteBranchTree also starts from the configured remotes.
+                Task<IReadOnlyList<string>> remoteNames = Task.Run(() => _branchTagService.LoadRemotes(repo));
                 Task<IReadOnlyList<StashRow>> stashes = bare
                     ? Task.FromResult<IReadOnlyList<StashRow>>([])
                     : Task.Run(() => _stashService.ListStashes(repo));
@@ -802,13 +808,14 @@ public sealed class RepoObjectsTree : UserControl
                         _submoduleService.DiscoverHierarchy(repo),
                         _worktreeService.ListWorktrees(repo)));
 
-                await Task.WhenAll(refs, stashes, navigation).ConfigureAwait(false);
+                await Task.WhenAll(refs, stashes, navigation, remoteNames).ConfigureAwait(false);
                 RepositoryNavigationSnapshot navigationSnapshot = await navigation.ConfigureAwait(false);
                 snapshot = new RepoSnapshot(
                     await refs.ConfigureAwait(false),
                     await stashes.ConfigureAwait(false),
                     navigationSnapshot.Submodules,
-                    navigationSnapshot.Worktrees);
+                    navigationSnapshot.Worktrees,
+                    await remoteNames.ConfigureAwait(false));
             }
             catch (Exception ex)
             {
@@ -935,23 +942,41 @@ public sealed class RepoObjectsTree : UserControl
         // "origin" holding four branches has to read "Remotes (1)" with "origin (4)"
         // below it. Every other category counts its own kind of item already
         // (branches, tags, stashes, submodules, worktrees), so only this one was off.
-        List<IGrouping<string, BranchTagRow>> remoteGroups = remote
-            .GroupBy(RemoteName, StringComparer.OrdinalIgnoreCase)
+        // A configured remote without refs (not fetched yet, or its fetch failed) is
+        // still a remote: it gets its node, empty, and counts.
+        Dictionary<string, List<BranchTagRow>> byRemote = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in snapshot.RemoteNames)
+        {
+            byRemote.TryAdd(name, []);
+        }
+
+        foreach (BranchTagRow row in remote)
+        {
+            string name = RemoteName(row);
+            if (!byRemote.TryGetValue(name, out List<BranchTagRow>? rows))
+            {
+                byRemote[name] = rows = [];
+            }
+
+            rows.Add(row);
+        }
+
+        List<KeyValuePair<string, List<BranchTagRow>>> remoteGroups = byRemote
             .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         TreeViewItem remotesNode = Category(T("RepoObjectsTree/tsbShowRemotes.ToolTipText", "Remotes"), "Remotes", remoteGroups.Count, "remotes");
         remotesNode.ContextMenu = RemotesRootMenu();
-        foreach (IGrouping<string, BranchTagRow> group in remoteGroups)
+        foreach ((string groupName, List<BranchTagRow> group) in remoteGroups)
         {
-            string groupKey = "remotes/" + group.Key;
-            TreeViewItem groupNode = Category(group.Key, "Remote", group.Count(), groupKey);
-            groupNode.ContextMenu = RemoteGroupMenu(group.Key);
+            string groupKey = "remotes/" + groupName;
+            TreeViewItem groupNode = Category(groupName, "Remote", group.Count, groupKey);
+            groupNode.ContextMenu = RemoteGroupMenu(groupName);
             AddRefsWithFolders(
                 groupNode,
                 groupKey,
                 SortRefs(group),
-                row => ShortRemoteName(row.Name, group.Key),
+                row => ShortRemoteName(row.Name, groupName),
                 (row, name) =>
                 {
                     TreeViewItem leaf = Leaf(name, "BranchRemote", row, isCurrent: false, "remotes/" + row.Name);
@@ -1682,6 +1707,13 @@ public sealed class RepoObjectsTree : UserControl
 
     private static string RemoteName(BranchTagRow row)
     {
+        // The core resolves the remote against the configured ones, so "my/fork/main"
+        // groups under "my/fork"; the first slash is only the fallback.
+        if (row.Remote.Length > 0)
+        {
+            return row.Remote;
+        }
+
         int slash = row.Name.IndexOf('/');
         return slash > 0 ? row.Name[..slash] : "remote";
     }
@@ -3720,5 +3752,5 @@ public sealed class RepoObjectsTree : UserControl
     private static IBrush Brush(string key, IBrush fallback)
         => Application.Current?.Resources[key] as IBrush ?? fallback;
 
-    private sealed record RepoSnapshot(BranchTagListing Refs, IReadOnlyList<StashRow> Stashes, SubmoduleHierarchy Submodules, IReadOnlyList<WorktreeRow> Worktrees);
+    private sealed record RepoSnapshot(BranchTagListing Refs, IReadOnlyList<StashRow> Stashes, SubmoduleHierarchy Submodules, IReadOnlyList<WorktreeRow> Worktrees, IReadOnlyList<string> RemoteNames);
 }

@@ -129,6 +129,11 @@ public sealed class SubmoduleService
                 ConfiguredName = DirectoryName(root),
                 Exists = Directory.Exists(root),
                 IsCurrent = SamePath(root, current),
+
+                // The top project's label carries its branch like every submodule's
+                // (upstream SetTopProjectSubmoduleInfo → GetBranchNameSuffix). Without
+                // it the root read "(no branch)" while a branch was checked out.
+                Branch = Directory.Exists(root) ? ReadBranch(root) : string.Empty,
             },
         };
 

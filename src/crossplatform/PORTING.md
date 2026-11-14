@@ -3451,10 +3451,19 @@ banchi verdi a lavoro integrato; ogni funzione verificata a schermo sotto Xvfb d
 - Verificato sotto Xvfb: fetch riuscito e fallito; riga visibile con git 2.43, nascosta con un wrapper che dichiara 2.30.
 - Notato e non toccato: il pannello sinistro conta "Remotes (1)" con due remote, di cui uno senza ref.
 
+### Le due stranezze del pannello sinistro viste nelle verifiche
+- **"(no branch)" sul repository stesso sotto Submodules.** Mostrare il top project è giusto (upstream
+  `AddTopAndNodesToTree` lo aggiunge sempre, col branch nel nome via `GetBranchNameSuffix`), ma la sua
+  riga in `SubmoduleService.DiscoverHierarchy` non chiamava mai `ReadBranch`: ora sì.
+- **"Remotes (1)" con due remote.** Il nodo nasceva raggruppando i ref remoti, quindi un remote non ancora
+  scaricato (o col fetch fallito) spariva. `RepoSnapshot` porta ora i remote configurati
+  (`BranchTagService.LoadRemotes`, in parallelo agli altri caricamenti) e ciascuno ha il suo nodo, anche
+  vuoto, come in `RemoteBranchTree`. Il raggruppamento usa `BranchTagRow.Remote` risolto dal core, così un
+  remote con la barra nel nome (`my/fork`) non si spezza; la prima barra resta solo come ripiego.
+- Verificato sotto Xvfb: `Remotes (2)` con `bad (0)` e `upstream (1)`, `lp-repo (feature)`.
+
 ### Ancora fuori
-Create fixup/squash/amend commit dal menu della griglia (il dialogo ha la base); due stranezze del
-pannello sinistro viste nelle verifiche e non indagate: il repository stesso sotto "Submodules (0)" come
-"(no branch)" e "Remotes (1)" con due remote di cui uno senza ref.
+Create fixup/squash/amend commit dal menu della griglia (il dialogo ha la base).
 
 ## M231 (2026-11-14) — allineamento con `upstream/master` (111 commit) e fix riportati
 
