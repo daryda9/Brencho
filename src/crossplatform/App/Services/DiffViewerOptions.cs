@@ -429,7 +429,7 @@ public static class ImageFormats
 
     /// <summary>
     ///  The name of the format <paramref name="header"/> announces ("PNG", "JPEG",
-    ///  "GIF", "WEBP", "BMP", "ICO"), or <see langword="null"/> when the bytes match
+    ///  "GIF", "WEBP", "BMP", "ICO", "AVIF"), or <see langword="null"/> when the bytes match
     ///  none of them. The name is meant to be shown to the user, so it is spelled the
     ///  way the format is commonly written rather than as an enum member.
     /// </summary>
@@ -460,7 +460,54 @@ public static class ImageFormats
             return "BMP";
         }
 
-        return IsIco(header) ? "ICO" : null;
+        if (IsIco(header))
+        {
+            return "ICO";
+        }
+
+        // Only when the system can decode it (SystemImageDecoder): SkiaSharp cannot, and
+        // an offer that opens on "could not be decoded" is worse than no offer. Without
+        // the decoder the file stays what it was before AVIF support: binary content.
+        return IsAvif(header) && SystemImageDecoder.CanDecodeAvif ? "AVIF" : null;
+    }
+
+    /// <summary>
+    ///  The ISO-BMFF signature of AVIF, without asking whether it can be decoded: a
+    ///  <c>ftyp</c> box first, whose major brand, or one of the compatible brands that
+    ///  fit in the header, is <c>avif</c> (still) or <c>avis</c> (sequence).
+    /// </summary>
+    public static bool IsAvif(ReadOnlySpan<byte> h)
+    {
+        if (h.Length < 16 || !h[4..8].SequenceEqual("ftyp"u8))
+        {
+            return false;
+        }
+
+        int boxSize = (h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3];
+        if (boxSize < 16)
+        {
+            return false;
+        }
+
+        // Major brand at 8, minor version at 12, compatible brands from 16 on.
+        if (IsAvifBrand(h[8..12]))
+        {
+            return true;
+        }
+
+        int end = Math.Min(boxSize, h.Length);
+        for (int at = 16; at + 4 <= end; at += 4)
+        {
+            if (IsAvifBrand(h[at..(at + 4)]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+
+        static bool IsAvifBrand(ReadOnlySpan<byte> brand)
+            => brand.SequenceEqual("avif"u8) || brand.SequenceEqual("avis"u8);
     }
 
     // The 0x89 first byte and the CR/LF pair are the signature's own transfer test:

@@ -928,6 +928,39 @@ public sealed class ImageDiffWindow : ZoomWindow
                 ? (count / 1024d).ToString("0.#", CultureInfo.CurrentCulture) + " kB"
                 : (count / (1024d * 1024)).ToString("0.##", CultureInfo.CurrentCulture) + " MB";
 
+    private static Bitmap DecodeWithSkia(byte[] bytes)
+    {
+        using MemoryStream stream = new(bytes);
+        return new Bitmap(stream);
+    }
+
+    // AVIF (upstream e2a7dc3ab): SkiaSharp 2.88.9 has no AV1 codec, so the pixels come
+    // from the system's gdk-pixbuf. ImageFormats only names a file AVIF when that
+    // decoder is there, so this is not reached without it; a file it still refuses
+    // ends in the ordinary "could not be decoded" line.
+    private static Bitmap DecodeWithSystem(byte[] bytes)
+    {
+        DecodedImage image = SystemImageDecoder.TryDecodeAvif(bytes)
+            ?? throw new InvalidOperationException(T("the system image decoder (gdk-pixbuf) could not read it"));
+
+        GCHandle pin = GCHandle.Alloc(image.Rgba, GCHandleType.Pinned);
+        try
+        {
+            // The constructor copies the pixels, so the pin only has to outlive it.
+            return new Bitmap(
+                PixelFormat.Rgba8888,
+                AlphaFormat.Unpremul,
+                pin.AddrOfPinnedObject(),
+                new PixelSize(image.Width, image.Height),
+                new Vector(96, 96),
+                image.Width * 4);
+        }
+        finally
+        {
+            pin.Free();
+        }
+    }
+
     private static ImageSide Decode(byte[]? bytes, string title)
     {
         if (bytes is null)
@@ -944,8 +977,7 @@ public sealed class ImageDiffWindow : ZoomWindow
 
         try
         {
-            using MemoryStream stream = new(bytes);
-            Bitmap bitmap = new(stream);
+            Bitmap bitmap = format == "AVIF" ? DecodeWithSystem(bytes) : DecodeWithSkia(bytes);
             return new ImageSide(title, bytes.Length, bitmap, false, null, format, Contents(bytes, format));
         }
         catch (Exception ex)
