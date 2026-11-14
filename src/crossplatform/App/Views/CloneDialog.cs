@@ -168,7 +168,9 @@ public sealed class CloneDialog : Theming.ZoomWindow
         _initSubmodules = new CheckBox
         {
             Content = T("FormClone/cbIntializeAllSubmodules.Text", "Initialize all submodules"),
-            IsChecked = true,
+
+            // Upstream af375e1be: preset as chosen for the previous clone (default on).
+            IsChecked = AppSettings.CloneInitializeAllSubmodules,
             Foreground = text,
         };
         _fullHistory = new CheckBox
@@ -543,6 +545,8 @@ public sealed class CloneDialog : Theming.ZoomWindow
         bool central = _central.IsChecked == true;
         string? branch = BranchArgument();
         int? depth = _fullHistory.IsChecked == true ? null : 1;
+
+        AppSettings.CloneInitializeAllSubmodules = _initSubmodules.IsChecked == true;
 
         string arguments = CloneInitService.CloneArguments(
             url,

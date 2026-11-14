@@ -153,9 +153,13 @@ public sealed class PluginService
         }
         catch (ReflectionTypeLoadException ex)
         {
-            // Partial success: keep the types that did load, skip the rest.
-            types = ex.Types.Where(t => t is not null).Cast<Type>().ToArray();
-            Log($"partial type-load for '{dllPath}': {ex.Message}");
+            // Some types reference members the loaded interfaces no longer have: a plugin
+            // built against another version. Its plugin type may well have loaded, only to
+            // fail later with MissingMethodException in the middle of a menu click, so the
+            // whole assembly is refused here — as upstream's loader now does when it
+            // validates compatibility on load (5cbf20964).
+            Log($"skipping incompatible plugin assembly '{dllPath}': {ex.Message}");
+            return [];
         }
         catch (Exception ex)
         {
