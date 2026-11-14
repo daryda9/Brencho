@@ -1,87 +1,42 @@
 <Project>
-  <Import Project="eng\RepoLayout.props" />
-  <Import Project="eng\Tests.props" />
-
+  <!-- Brencho's build. Intentionally does NOT import gitextensions/Directory.Build.props
+       (upstream's), so WinForms is not forced on and the target framework is plain
+       net10.0 (no 'WINDOWS' compile symbol). Upstream's sources are compiled from
+       gitextensions/src through AppDir/PluginsDir below. -->
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>14.0</LangVersion>
-
-    <NoWarn>$(NoWarn);1573;1591;1712</NoWarn>
-    <!-- URIs should not be hardcoded -->
-    <NoWarn>$(NoWarn);S1075</NoWarn>
-
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
-
     <ImplicitUsings>enable</ImplicitUsings>
-    <UseWindowsForms>true</UseWindowsForms>
-    <TargetFramework>$(SolutionTargetFramework)</TargetFramework>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <SuppressNETCoreSdkPreviewMessage>false</SuppressNETCoreSdkPreviewMessage>
-    <CodeAnalysisRuleSet>$(MSBuildThisFileDirectory)eng\GitExtensions.ruleset</CodeAnalysisRuleSet>
-
-    <!-- More information: https://aka.ms/msbuild/net8-binaryformatter -->
-    <GenerateResourceWarnOnBinaryFormatterUse>false</GenerateResourceWarnOnBinaryFormatterUse>
-
-    <!-- SourceLink: https://github.com/dotnet/sourcelink -->
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <DebugType>embedded</DebugType>
-
-    <!-- TODO once all project migrated to SDK-style, remove this and move properties to Directory.Build.props -->
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-
-    <IsPublishable>false</IsPublishable>
-
-    <!-- Set the target platform manually to be: x64 (default), x86, arm64 -->
-    <TargetPlatform Condition=" '$(TargetPlatform)' == '' ">x64</TargetPlatform>
-
-    <!-- Opt in to build acceleration in VS (from 17.5 onwards): https://github.com/dotnet/project-system/blob/main/docs/build-acceleration.md -->
-    <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
-    <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
-  </PropertyGroup>
-
-  <!-- https://learn.microsoft.com/nuget/consume-packages/Central-Package-Management -->
-  <PropertyGroup>
+    <UseWindowsForms>false</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS1573;CS1591;CS1712;CS0618;CA1416;NU1701</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- These projects share a directory, so give each its own obj/bin to stop
+         them stomping each other's project.assets.json. -->
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)bin\$(MSBuildProjectName)\</BaseOutputPath>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AppDir>$(MSBuildThisFileDirectory)gitextensions\src\app</AppDir>
+    <PluginsDir>$(MSBuildThisFileDirectory)gitextensions\src\plugins</PluginsDir>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
-    <!-- Coverlet's PDB check cannot handle deterministic source paths https://github.com/tonerdo/coverlet/issues/363 -->
-    <DeterministicSourcePaths>false</DeterministicSourcePaths>
-  </PropertyGroup>
-
-  <!-- Exclude *.resources
-       https://docs.microsoft.com/dotnet/core/project-sdk/msbuild-props#satelliteresourcelanguages -->
-  <PropertyGroup>
-    <SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
-  </PropertyGroup>
-
-  <!-- For the purposes of generating code coverage as part of the build -->
-  <PropertyGroup Condition="'$(Coverage)' == 'true'">
-    <!-- Coverlet assumes PDB files exist on disk https://github.com/tonerdo/coverlet/issues/362 -->
-    <DebugType Condition="'$(DebugType)' == 'embedded'">portable</DebugType>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Include="$(RepoRoot)\CommonAssemblyInfo.cs" Link="Properties\CommonAssemblyInfo.cs" />
+  <!-- Replicate the implicit usings that UseWindowsForms would normally add, so
+       source files that rely on them resolve against our compat shims. -->
+  <!-- Replicate WinForms implicit usings for the reused core projects only.
+       The Avalonia app and the shim assembly opt out to avoid type clashes
+       (Control/Application exist in both Avalonia and our shims). -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Compat.WinFormsShims' AND '$(MSBuildProjectName)' != 'GitExtensions.Avalonia'">
+    <Using Include="System.Drawing" />
+    <Using Include="System.Windows.Forms" />
+    <Using Include="System.ComponentModel" />
   </ItemGroup>
 
-  <ItemGroup>
-    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng\BannedSymbols.txt">
-      <Visible>False</Visible>
-    </AdditionalFiles>
-    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng\vs-threading.MainThreadAssertingMethods.txt">
-      <Visible>False</Visible>
-    </AdditionalFiles>
-    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng\vs-threading.MainThreadSwitchingMethods.txt">
-      <Visible>False</Visible>
-    </AdditionalFiles>
-    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng\vs-threading.TypesRequiringMainThread.txt">
-      <Visible>False</Visible>
-    </AdditionalFiles>
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Compat.WinFormsShims'">
+    <!-- Upstream's Directory.Build.targets adds this to every project in the real build. -->
+    <PackageReference Include="Microsoft.VisualStudio.Threading" />
   </ItemGroup>
-
 </Project>

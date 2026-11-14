@@ -1,154 +1,73 @@
-![Git Extensions logo](https://cdn.rawgit.com/gitextensions/gitextensions/master/setup/assets/Logo/git-extensions-logo.svg)
+<p align="center">
+  <img src="/App/Assets/Icons/brencho.svg" alt="Brencho logo" width="128">
+</p>
 
-# Git Extensions
+<h1 align="center">Brencho</h1>
 
-Git Extensions is a standalone Windows UI tool for managing git repositories.
-It also integrates with Windows Explorer and Microsoft Visual Studio.
+<p align="center"><b>A graphical Git client for Linux, based on Git Extensions.</b><br>
+Commit graph, multi-repo tabs, built-in diff and three-way merge, interactive rebase.</p>
 
-## Online manual
+Brencho is a port of [Git Extensions](https://github.com/gitextensions/gitextensions),
+the Windows Git GUI, to Linux. If you used Git Extensions on Windows and want the
+same tool on Ubuntu, Debian or Arch, this is it. It is free and open source
+(GPL v3) and a desktop alternative to GitKraken, SmartGit or GitHub Desktop.
 
-[git-extensions-documentation.readthedocs.org](https://git-extensions-documentation.readthedocs.org/)
+The git logic is upstream's, compiled unchanged for plain `net10.0`. The interface
+is a new Avalonia UI, because the original is WinForms and WinForms does not run
+outside Windows.
 
-## Current Status
+![The main window: revision graph, repository tabs, and the diff pane](/docs/screenshots/main-window.png)
 
-<a href="#backers" alt="sponsors on Open Collective"><img src="https://opencollective.com/gitextensions/backers/badge.svg" /></a> <a href="#sponsors" alt="Sponsors on Open Collective"><img src="https://opencollective.com/gitextensions/sponsors/badge.svg" /></a>
+## What it adds over the original
 
-### Next Version ([build instructions](https://github.com/gitextensions/gitextensions/wiki/Build-instructions))
+- **Several repositories in one window**, on a VS Code-style tab strip: previews,
+  pinning, duplicated tabs, submodules and worktrees one click away.
+- **Built-in diff, three-way merge and image comparison**, driven by git itself.
+  No external merge tool has to be configured.
+- **Theme that follows the desktop** (Light / Dark / System), live UI zoom, and
+  vector icons coloured by what each command does.
+- **An embedded terminal** with a pty of its own, so there is nothing to install.
+- **A command palette** (`Ctrl+Shift+P`) built from the real menu.
+- **An interactive-rebase todo shown as steps**, and a sequencer bar that tells you
+  where a stopped operation is.
+- **A `.deb` package** that needs no .NET on the target machine.
 
-<table>
-  <tr>
-    <th>&nbsp;</th>
-    <th>Windows only</th>
-  </tr>
-  <tr>
-    <td>
-      Runtime environment
-    </td>
-    <td>
-      MS Windows 10+ // <a href="https://dotnet.microsoft.com/download/dotnet/10.0" target=_blank>.NET Desktop 10.0 SDK</a>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      Development
-    </td>
-    <td>
-      MS Visual Studio 2026, C# 14 // VC++ (inc. ATL for x86/x64 for installer)
-    </td>
-  </tr>
-  <tr>
-    <td>
-      Current dev status
-    </td>
-    <td>
-      <a href="https://github.com/gitextensions/gitextensions/actions/workflows/pr-build.yml?query=branch%3Amaster"><img alt="Build status" src="https://github.com/gitextensions/gitextensions/actions/workflows/pr-build.yml/badge.svg?branch=master" style="max-width:100%;"></a>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      Translations
-    </td>
-    <td>
-      <a target="_blank" style="text-decoration:none; color:black; font-size:66%" href="https://github.com/gitextensions/gitextensions/wiki/Translations" title="More information in the wiki"><img src="https://img.shields.io/badge/tranlations-Transifex-blue" ></a>
-    </td>
-  </tr>
-</table>
+## Install (Debian / Ubuntu)
 
-## Downloads
+Download `brencho_<version>_amd64.deb` from [Releases](https://github.com/daryda9/Brencho/releases), then:
 
-<a href="https://github.com/gitextensions/gitextensions/releases" rel="nofollow" style="vertical-align: -webkit-baseline-middle;"><img src="https://img.shields.io/github/downloads/gitextensions/gitextensions/total.svg?label=GitHub%20downloads%20(total)&cacheSeconds=86400"></a> <a href="https://chocolatey.org/packages/gitextensions" rel="nofollow" style="vertical-align: -webkit-baseline-middle;"><img src="https://img.shields.io/chocolatey/dt/gitextensions.svg?label=Chocolatey%20downloads%20(total)&cacheSeconds=86400"></a>
+```bash
+sudo apt install ./brencho_*_amd64.deb
+brencho /path/to/a/git/repo
+```
 
-**[Download it now](https://github.com/gitextensions/gitextensions/releases/latest)** or install it with [Chocolatey](https://chocolatey.org/packages/gitextensions) or [Winget](https://winget.run/pkg/GitExtensionsTeam/GitExtensions).
+The package bundles its own .NET runtime; the only dependency is `git`.
 
-If you want to **update a portable version**, you should delete all the files and the subfolders from the existing folder except:
+## Arch Linux
 
-* _GitExtensions.settings_
-* _WindowPositions.xml_
-* User defined themes in folder _Themes_
+A `brencho-bin` PKGBUILD is in [`packaging/aur/`](/packaging/aur/).
 
-<table>
-  <tr>
-    <td>
-      <strong>Latest official release: v7.2.1</strong>
-    </td>
-    <td>
-      <a href="https://github.com/gitextensions/gitextensions/releases/latest">[ Download ]</a><br />
-      <a href="https://github.com/gitextensions/gitextensions/releases/latest" rel="nofollow" style="vertical-align: -webkit-baseline-middle;"><img src="https://img.shields.io/github/downloads/gitextensions/gitextensions/latest/total.svg?label=GitHub%20downloads%20(latest)&cacheSeconds=3600"></a>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <strong>Current dev stream</strong><br />
-      NB: expect :unicorn: :unicorn: and :dragon: :dragon:
-    </td>
-    <td>
-      <a href="https://github.com/gitextensions/gitextensions/actions/workflows/pr-build.yml?query=branch%3Amaster">[ Download ]</a><br />
-      <a href="https://github.com/gitextensions/gitextensions/actions/workflows/pr-build.yml?query=branch%3Amaster"><img alt="Build status" src="https://github.com/gitextensions/gitextensions/actions/workflows/pr-build.yml/badge.svg?branch=master" style="max-width:100%;"></a>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <strong>Visual Studio VSIX (2022 and later)</strong>
-    </td>
-    <td>
-      <a href="https://marketplace.visualstudio.com/items?itemName=GitExtensionsApp.VS2022">[ Download ]</a> or install from Visual Studio via Extensions
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <strong>Visual Studio Code VSIX</strong><br />
-      Kudos to <a href="https://github.com/pmiossec" class="author text-inherit">@pmiossec</a>
-    </td>
-    <td>
-      <a href="https://marketplace.visualstudio.com/items?itemName=pmiossec.vscode-gitextensions">[ Download ]</a> or install via VSCode<br />
-      NB: Please direct all discussions about the VSIX to <a href="https://github.com/pmiossec/vscode-gitextensions">its own repo</a>.
-    </td>
-  </tr>
-</table>
+## Build from source (Linux)
 
-# Conduct
+```bash
+dotnet build App/GitExtensions.Avalonia.csproj
+./run.sh /path/to/a/git/repo
+```
 
-Project maintainers pledge to foster an open and welcoming environment, and ask contributors to do the same.
+## Repository layout
 
-For more information see our [code of conduct](CODE_OF_CONDUCT.md).
+| Path | What it is |
+|---|---|
+| [`App/`](/App/) | The Avalonia application: views, services, theming, assets |
+| [`Core/`](/Core/), [`Compat/`](/Compat/) | Projects that compile upstream's git logic for plain `net10.0`, and the WinForms shims it needs |
+| [`Tests/`](/Tests/) | Regression harnesses; `Tests/run-all.sh` builds and runs them all |
+| [`packaging/`](/packaging/) | The `.deb` build and the AUR `PKGBUILD` |
+| [`docs/`](/docs/) | The [full README](/docs/README.md): every difference from upstream, with screenshots |
+| [`ROADMAP.md`](/ROADMAP.md), [`PORTING.md`](/PORTING.md) | Known gaps, and the port's milestone-by-milestone record |
+| [`gitextensions/`](/gitextensions/) | Upstream [Git Extensions](https://github.com/gitextensions/gitextensions), unchanged except for three small Linux fixes in its core (listed in `PORTING.md`), kept in sync with it. Brencho compiles its core (`gitextensions/src/app/GitCommands` and friends); the WinForms UI there is not built |
 
-# Shoutouts
+## License
 
-* We thank all the people who contribute, the project exists because of you<br />
-  <a href="https://github.com/gitextensions/gitextensions/contributors"><img src="https://opencollective.com/gitextensions/contributors.svg?width=890&button=false" /></a>
-* We thank [Transifex](https://www.transifex.com/) for helping us with translations<br />
-  <a href="https://www.transifex.com/" target="_blank"><img src="./src/app/GitUI/Resources/Icons/originals/transifex.svg"></a>
-* We thank [SignPath.io](https://signpath.io/?utm_source=foundation&utm_medium=github&utm_campaign=gitextension) for the free code signing<br />
-  <a href="https://signpath.io/?utm_source=foundation&utm_medium=github&utm_campaign=gitextension" target="_blank"><img src="./src/app/GitUI/Resources/Icons/originals/signpath_logo.png"></a>
-* We thank [SignPath Foundation](https://signpath.org/?utm_source=foundation&utm_medium=github&utm_campaign=gitextension) for the signing certificate
-* We thank [Yusuke Kamiyamane](http://p.yusukekamiyamane.com/) for the icons ([CCA/3.0](http://creativecommons.org/licenses/by/3.0/))
-
-## Backers
-
-Thank you to all our backers! 🙏 [[Become a backer](https://opencollective.com/gitextensions#backer)]
-
-<a href="https://opencollective.com/gitextensions#backers" target="_blank"><img src="https://opencollective.com/gitextensions/backers.svg?width=890"></a>
-
-## Sponsors
-
-Support this project by becoming a sponsor. Your logo will show up here with a link to your website. [[Become a sponsor](https://opencollective.com/gitextensions#sponsor)]
-
-<a href="https://opencollective.com/gitextensions/sponsor/0/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/0/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/1/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/1/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/2/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/2/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/3/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/3/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/4/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/4/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/5/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/5/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/6/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/6/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/7/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/7/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/8/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/8/avatar.svg"></a>
-<a href="https://opencollective.com/gitextensions/sponsor/9/website" target="_blank"><img src="https://opencollective.com/gitextensions/sponsor/9/avatar.svg"></a>
-
-# Useful Links
-
-* Website: [gitextensions.github.io](https://gitextensions.github.io/) [Git repo](https://github.com/gitextensions/gitextensions.github.io)
-* Source code: [github.com/gitextensions/gitextensions](https://github.com/gitextensions/gitextensions)
-* Online manual: [git-extensions-documentation.readthedocs.org](https://git-extensions-documentation.readthedocs.org/) [Git repo](https://github.com/gitextensions/GitExtensionsDoc)
-* Issue tracker: [github.com/gitextensions/gitextensions/issues](https://github.com/gitextensions/gitextensions/issues)
-* Wiki: [github.com/gitextensions/gitextensions/wiki](https://github.com/gitextensions/gitextensions/wiki)
-* Gitter chat: [gitter.im/gitextensions/gitextensions](https://gitter.im/gitextensions/gitextensions?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[GPL v3](/LICENSE.md), the same as Git Extensions, from which this is derived. The
+`.deb` carries the notices of every bundled third-party component in
+`/usr/share/doc/brencho/copyright`.

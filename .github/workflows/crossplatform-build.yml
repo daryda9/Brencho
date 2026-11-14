@@ -1,4 +1,4 @@
-# Build and test the Linux/Avalonia port (src/crossplatform).
+# Build and test Brencho (the repository root; upstream lives in gitextensions/).
 #
 # The port has no coverage in upstream's app-build.yml (not kept in this fork): it builds
 # GitExtensions.slnx, which does not contain a single one of these projects, and
@@ -13,19 +13,7 @@ name: Crossplatform build and test
 
 on:
   push:
-    paths:
-      - 'src/crossplatform/**'
-      - 'src/app/GitCommands/**'
-      - 'src/app/GitExtensions.Extensibility/**'
-      - 'src/app/GitExtUtils/**'
-      - 'src/app/GitUIPluginInterfaces/**'
-      - 'Directory.Packages.props'
-      - 'global.json'
-      - '.github/workflows/crossplatform-build.yml'
   pull_request:
-    paths:
-      - 'src/crossplatform/**'
-      - '.github/workflows/crossplatform-build.yml'
   workflow_dispatch:
 
 concurrency:
@@ -57,18 +45,16 @@ jobs:
       uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ~/.nuget/packages
-        key: nuget-crossplatform-${{ runner.os }}-${{ hashFiles('src/crossplatform/Directory.Packages.props') }}
+        key: nuget-crossplatform-${{ runner.os }}-${{ hashFiles('Directory.Packages.props') }}
         restore-keys: nuget-crossplatform-${{ runner.os }}-
 
     # -warnaserror, not a report: the port's standing rule is a build with zero
     # warnings, and a rule nothing enforces is a rule that decays. The build is
     # left to run-all.sh below rather than repeated here.
     - name: Build
-      working-directory: src/crossplatform
       run: dotnet build GitExtensions.Avalonia.slnx -c Debug -warnaserror -v m --nologo
 
     - name: Run the harnesses
-      working-directory: src/crossplatform
       run: Tests/run-all.sh --no-build
 
     # The suites that fail keep their sandbox; on a hosted runner it disappears
