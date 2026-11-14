@@ -6701,6 +6701,14 @@ public sealed class RevisionGridView : UserControl
         {
             Header = Strip(T("RevisionGridControl/manipulateCommitToolStripMenuItem.Text", "&Advanced")),
         };
+        // Upstream af8e3a7e5, first in its Advanced menu. Off on the root commit, which
+        // has no parent to rebase onto (upstream's FirstParentId guard); everything that
+        // needs git (HEAD contains it, nothing in progress, something to commit) is
+        // checked when it is clicked.
+        AddRouted(advanced, "Edit commit by fixup commit…",
+            ctx => ctx.SingleCommit && ctx.Row.ParentHashes.Count > 0,
+            caption: T("RevisionGridControl/editCommitWithFixupToolStripMenuItem.Text",
+                "E&dit commit by creating a fixup commit and squash-rebase..."));
         AddRouted(advanced, "Reword commit…", ctx => ctx.SingleCommit);
         AddRouted(advanced, "Squash with previous…", ctx => ctx.SingleCommit);
         AddRouted(advanced, "Fixup with previous…", ctx => ctx.SingleCommit);

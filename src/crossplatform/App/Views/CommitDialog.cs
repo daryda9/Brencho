@@ -406,9 +406,19 @@ public sealed class CommitDialog : Theming.ZoomWindow
     /// <summary>Raised on each successful commit so the owner can refresh.</summary>
     public event Action? Committed;
 
-    public CommitDialog(string repoPath)
+    // Fixup mode (upstream af8e3a7e5, CommitKind.Fixup): the message is preset to
+    // "fixup! <subject>" and read-only until "Modify the commit message" unlocks it,
+    // Amend / Commit & push / the message and template menus are out of reach, and the
+    // dialog closes on the first successful commit — the caller then rebases.
+    private readonly CommitFixupTarget? _fixupTarget;
+    private readonly Button _modifyMessageBtn;
+    private bool _messageLocked;
+    private bool _fixupCommitted;
+
+    public CommitDialog(string repoPath, CommitFixupTarget? fixupTarget = null)
     {
         _repoPath = repoPath;
+        _fixupTarget = fixupTarget;
         _prefs = _settings.Load();
 
         Width = 1000;
@@ -784,6 +794,8 @@ public sealed class CommitDialog : Theming.ZoomWindow
         _templatesBtn.Click += (_, _) => Async.Run(() => ShowTemplatesMenuAsync(_templatesBtn), "opening the commit-template menu");
 
         _createBranchBtn = MakeButton(() => Async.Run(PromptCreateBranchAsync, "creating a branch"));
+        _modifyMessageBtn = MakeButton(UnlockMessage);
+        _modifyMessageBtn.IsVisible = false;
 
         // The dialog's actions, as opposed to the flat strip buttons above them: a
         // raised fill and no outline (Theming/BarButtonStyles.ApplyActions).
@@ -805,7 +817,7 @@ public sealed class CommitDialog : Theming.ZoomWindow
             Margin = new Thickness(0, 0, 6, 0),
             Children =
             {
-                _commitBtn, _commitPushBtn, _amendBox, _stashBtn,
+                _commitBtn, _commitPushBtn, _amendBox, _modifyMessageBtn, _stashBtn,
                 _resetAllBtn, _resetUnstagedBtn,
             },
         };
@@ -979,6 +991,7 @@ public sealed class CommitDialog : Theming.ZoomWindow
         InstallShortcuts();
         TrackCaret();
         ApplyTranslations();
+        EnterFixupMode();
 
         // A language switch while the dialog is open re-captions it in place
         // (MainMenu does the same by rebuilding itself). The handler may run on
@@ -1135,6 +1148,12 @@ public sealed class CommitDialog : Theming.ZoomWindow
 
         _messageBox.Watermark = T("FormCommit/_enterCommitMessageHint.Text", "Enter commit message");
         _amendBox.Content = T("FormCommit/_amendCommitCaption.Text", "Amend commit");
+        _modifyMessageBtn.Content = RevisionFilterDialog.StripMnemonic(
+            T("FormCommit/modifyCommitMessageButton.Text", "Modify the commit m&essage"));
+        ToolTip.SetTip(_modifyMessageBtn, T(
+            "FormCommit/_modifyCommitMessageButtonToolTip.Text",
+            "If you change the first line of the commit message, git will treat this commit as an ordinary commit,\n"
+            + "i.e. it may no longer be a fixup or an autosquash commit."));
 
         _commitBtn.Content = ButtonFace("RepoStateClean", T("FormCommit/Commit.Text", "Commit"));
         // "Push", not the bare "ArrowUp" it used to carry: this button pushes, and the
@@ -1349,6 +1368,53 @@ public sealed class CommitDialog : Theming.ZoomWindow
         CommitDialog dialog = new(repoPath);
         dialog.Committed += onCommitted;
         await dialog.ShowDialog(owner);
+    }
+
+    /// <summary>
+    ///  Opens the dialog in fixup mode for <paramref name="target"/> and returns true
+    ///  when the fixup commit was created (upstream's <c>CommitCreated</c> event, raised
+    ///  by <c>FormCommit.DoCommit</c>); false when the user closed it without committing.
+    /// </summary>
+    public static async Task<bool> ShowFixupAsync(Window owner, string repoPath, CommitFixupTarget target, Action onCommitted)
+    {
+        CommitDialog dialog = new(repoPath, target);
+        dialog.Committed += onCommitted;
+        await dialog.ShowDialog(owner);
+        return dialog._fixupCommitted;
+    }
+
+    // Applies fixup mode once, after the captions exist. Upstream's CommitKind setter
+    // (FormCommit.cs:185-200) plus the Fixup branch of OnShown (:511-514).
+    private void EnterFixupMode()
+    {
+        if (_fixupTarget is null)
+        {
+            return;
+        }
+
+        _messageBox.Text = _fixupTarget.Message;
+        _amendBox.IsChecked = false;
+        _amendBox.IsVisible = false;
+        _commitPushBtn.IsEnabled = false;
+        _modifyMessageBtn.IsVisible = true;
+        SetMessageLocked(true);
+    }
+
+    // Upstream's modifyCommitMessageButton_Click: the message becomes editable, with
+    // the tooltip's warning that changing the subject defeats the autosquash.
+    private void UnlockMessage()
+    {
+        SetMessageLocked(false);
+        _modifyMessageBtn.IsVisible = false;
+        _messageBox.Focus();
+    }
+
+    private void SetMessageLocked(bool locked)
+    {
+        _messageLocked = locked;
+        _messageBox.IsReadOnly = locked;
+        _messageMenuBtn.IsEnabled = !locked;
+        _templatesBtn.IsEnabled = !locked;
     }
 
     // ---------- shared per-file menu entries ----------
@@ -3044,6 +3110,13 @@ public sealed class CommitDialog : Theming.ZoomWindow
     // sites), and every await inside is a modal the user drives.
     private async Task DoCommitAsync(bool push)
     {
+        // Pushing the fixup commit before the rebase squashes it would publish a commit
+        // that is about to disappear; the hotkey reaches here even with the button off.
+        if (_fixupTarget is not null && push)
+        {
+            return;
+        }
+
         int staged = _stagedPane.Rows.Count;
         string message = _messageBox.Text ?? string.Empty;
         CommitOptions options = CurrentOptions();
@@ -3150,6 +3223,15 @@ public sealed class CommitDialog : Theming.ZoomWindow
         await UserScriptRunner.RunEventAsync(this, UserScriptEvent.AfterCommit, ScriptContext(message));
         Committed?.Invoke();
         SetStatus(string.Format(T("Committed ({0})."), CommitActionsService.DescribeCommit(options)));
+
+        // Fixup mode is one commit and done: the caller's rebase comes next, and a
+        // second commit from the same window would not be the fixup it asked for.
+        if (_fixupTarget is not null)
+        {
+            _fixupCommitted = true;
+            Close();
+            return;
+        }
 
         // Upstream only consults "after all files committed" when "after each
         // commit" is off, and closes on the state AFTER the reload.
@@ -3480,6 +3562,12 @@ public sealed class CommitDialog : Theming.ZoomWindow
     // dropped.
     private async Task ShowMessageMenuAsync(Button anchor)
     {
+        // The overflow menu can still reach this while the button itself is disabled.
+        if (_messageLocked)
+        {
+            return;
+        }
+
         string repo = _repoPath;
         int previousCount = Math.Max(1, _prefs.CommitDialogNumberOfPreviousMessages);
         string authorPattern = _onlyMyMessages && _committerName.Length > 0
@@ -3615,6 +3703,11 @@ public sealed class CommitDialog : Theming.ZoomWindow
 
     private async Task ShowTemplatesMenuAsync(Button anchor)
     {
+        if (_messageLocked)
+        {
+            return;
+        }
+
         string repo = _repoPath;
         IReadOnlyList<CommitTemplate> templates = await Task.Run(() =>
         {
@@ -3851,10 +3944,15 @@ public sealed class CommitDialog : Theming.ZoomWindow
     {
         MenuFlyout flyout = new();
 
-        flyout.Items.Add(Toggle(
-            T("FormCommit/_amendCommitCaption.Text", "Amend commit") + "  (--amend)",
-            _amendBox.IsChecked == true,
-            v => _amendBox.IsChecked = v));
+        // A fixup commit is a new commit by definition: amending would rewrite HEAD
+        // instead and leave nothing for the autosquash to move.
+        if (_fixupTarget is null)
+        {
+            flyout.Items.Add(Toggle(
+                T("FormCommit/_amendCommitCaption.Text", "Amend commit") + "  (--amend)",
+                _amendBox.IsChecked == true,
+                v => _amendBox.IsChecked = v));
+        }
         flyout.Items.Add(Toggle(
             T("FormCommit/signOffToolStripMenuItem.Text", "Sign-off commit") + "  (--signoff)",
             _signOff,

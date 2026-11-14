@@ -1724,6 +1724,8 @@ public sealed class MainWindow : Theming.ZoomWindow
         Register("Reword commit…", hash => _ = RewordCommitAsync(hash));
         Register("Squash with previous…", hash => _ = SquashOrFixupAsync(hash, squash: true));
         Register("Fixup with previous…", hash => _ = SquashOrFixupAsync(hash, squash: false));
+        Register("Edit commit by fixup commit…",
+            hash => Async.Run(() => EditCommitWithFixupAsync(hash), "editing a commit by a fixup commit"));
 
         // Compare actions. The grid is single-select, so we mirror the original's
         // two-commit compare with a remembered BASE + "Compare to BASE" pair, plus
@@ -2114,6 +2116,107 @@ public sealed class MainWindow : Theming.ZoomWindow
         else
         {
             await RunEditAsync("Fixup", () => svc.Fixup(_repoPath!, hash));
+        }
+    }
+
+    /// <summary>
+    ///  "Edit commit by creating a fixup commit and squash-rebase…" (upstream
+    ///  af8e3a7e5, <c>RevisionGridControl.EditCommitWithFixupToolStripMenuItemClick</c>):
+    ///  the commit dialog opens in fixup mode for <paramref name="hash"/>, and once the
+    ///  <c>fixup!</c> commit exists the branch is rebased onto the commit's first parent
+    ///  with <c>-i --autosquash --autostash</c>, which melts the fixup into it.
+    ///
+    ///  <para>The rebase runs like the rebase dialog's (<see cref="BranchTagService.RebaseStreaming"/>
+    ///  in the shared process window, editors pinned to the no-op, rerere stops continued
+    ///  at once). If it stops on a conflict the rebase banner owns the rest — Continue,
+    ///  Skip, Abort — exactly as for any other rebase; the auto-stash is restored by git
+    ///  when that rebase ends.</para>
+    ///
+    ///  <para>No "rewrites history, continue?" question, unlike reword/squash here: the
+    ///  commit dialog is the confirmation, as upstream has it. Closing it without
+    ///  committing leaves everything as it was.</para>
+    /// </summary>
+    private async Task EditCommitWithFixupAsync(string hash)
+    {
+        if (_repoPath is not { Length: > 0 } repo)
+        {
+            return;
+        }
+
+        string label = T("Edit commit by fixup");
+        FixupEditPlan plan;
+        try
+        {
+            plan = await Task.Run(() => new CommitEditService().PlanFixupEdit(repo, hash));
+        }
+        catch (Exception ex)
+        {
+            _statusBar.SetText(TF("{0} failed: {1}", label, ex.Message));
+            return;
+        }
+
+        if (plan.Refusal is { } refusal)
+        {
+            _statusBar.SetText(refusal switch
+            {
+                FixupEditRefusal.OperationInProgress => T("A rebase, merge, cherry-pick or revert is in progress: finish or abort it first."),
+                FixupEditRefusal.RootCommit => T("The root commit has no parent to rebase onto."),
+                FixupEditRefusal.NotInCurrentBranch => T("This commit is not part of the current branch (HEAD does not contain it)."),
+                _ => T("There are no changes to put into a fixup commit."),
+            });
+            return;
+        }
+
+        using IDisposable watch = SuspendWatcher();
+
+        bool committed = await CommitDialog.ShowFixupAsync(this, repo, new CommitFixupTarget(hash, plan.Subject), RefreshAll);
+        if (!committed)
+        {
+            return;
+        }
+
+        RebaseChoice choice = plan.RebaseChoice;
+        BranchTagResult? res = null;
+        await GitProcessDialog.RunStreamingAsync(
+            this,
+            T("FormRebase/btnRebase.Text", "Rebase"),
+            emit =>
+            {
+                res = new BranchTagService().RebaseStreaming(repo, choice, emit);
+                RebaseCommandResult continued = new RebaseSessionService().ContinueReplayedResolutions(
+                    repo, new RebaseCommandResult(res.Success, res.Output), emit, askForMessages: false);
+                if (!ReferenceEquals(continued.Output, res.Output))
+                {
+                    res = new BranchTagResult(continued.Success, res.Output + continued.Output);
+                }
+
+                return new GitProcessOutcome(res.Success, res.Output);
+            },
+            interactive: false);
+
+        RefreshAll();
+        if (res?.Success == true)
+        {
+            _statusBar.SetText(TF("{0} done.", label));
+        }
+        else if (await Task.Run(() => new RebaseSessionService().Read(repo).InProgress))
+        {
+            // The output opens with the process window's own "Command to be executed"
+            // header, so its first line says nothing; the state does.
+            _statusBar.SetText(TF("{0}: the rebase stopped. Continue, skip or abort it from the rebase bar.", label));
+        }
+        else
+        {
+            string lastLine = (res?.Output ?? string.Empty).Split('\n')
+                .Select(l => l.Trim())
+                .LastOrDefault(l => l.Length > 0 && !l.StartsWith("hint:", StringComparison.Ordinal)) ?? string.Empty;
+            _statusBar.SetText(TF("{0} failed: {1}", label, lastLine));
+        }
+
+        // Stopped on a conflict: the banner now has Continue / Skip / Abort.
+        if (await ConflictFlow.HandleAsync(this, repo) is { HadConflicts: true })
+        {
+            RefreshAll();
         }
     }
 

@@ -68,6 +68,7 @@ try
     RunMarkerScan();
     RunBothDeletedKind();
     RunRerereAutoContinue();
+    RunFixupEdit();
 }
 finally
 {
@@ -92,7 +93,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine($"PASS: {cases} merge-resolution cases (index stages, reopen, marker scan) against real repositories");
+Console.WriteLine($"PASS: {cases} merge-resolution cases (index stages, reopen, marker scan, fixup edit) against real repositories");
 return 0;
 
 // ---------------------------------------------------------------- the cases
@@ -294,6 +295,109 @@ void RunRerereAutoContinue()
     RebaseCommandResult untouched = new RebaseSessionService().ContinueReplayedResolutions(
         repo, new RebaseCommandResult(false, "x"), _ => { });
     Check("an edit stop is left stopped", untouched.Output == "x" && Directory.Exists(Path.Combine(repo, ".git", "rebase-merge")), untouched.Output);
+    Git(repo, "rebase --abort");
+}
+
+// Upstream af8e3a7e5, "Edit commit by creating a fixup commit and squash-rebase": the
+// refusals of CommitEditService.PlanFixupEdit, and the rebase its plan describes run
+// for real through BranchTagService.RebaseStreaming — the fixup melts into its target,
+// the leftovers survive through the auto-stash, and a merge in the range survives too
+// (measured: upstream's plain `-i --autosquash` flattens it).
+void RunFixupEdit()
+{
+    string repo = Path.Combine(scratch, "fixup-edit");
+    Directory.CreateDirectory(repo);
+    Init(repo);
+    CommitEditService svc = new();
+    string Rev(string rev) => Git(repo, "rev-parse " + rev).Trim();
+
+    File.WriteAllText(Path.Combine(repo, "a"), "base\n");
+    Git(repo, "add -A");
+    Git(repo, "commit -q -m base");
+    string root = Rev("HEAD");
+    File.WriteAllText(Path.Combine(repo, "a"), "base\nA\n");
+    Git(repo, "commit -q -am A");
+    string a = Rev("HEAD");
+    File.WriteAllText(Path.Combine(repo, "b"), "B\n");
+    Git(repo, "add b");
+    Git(repo, "commit -q -m B");
+
+    Check("fixup: a clean tree is refused",
+        svc.PlanFixupEdit(repo, a).Refusal == FixupEditRefusal.NothingToCommit, $"{svc.PlanFixupEdit(repo, a).Refusal}");
+
+    File.WriteAllText(Path.Combine(repo, "a"), "base\nA fixed\n");
+    Check("fixup: the root commit is refused",
+        svc.PlanFixupEdit(repo, root).Refusal == FixupEditRefusal.RootCommit, $"{svc.PlanFixupEdit(repo, root).Refusal}");
+
+    Git(repo, "branch other " + root);
+    Git(repo, "stash -q");
+    Git(repo, "checkout -q other");
+    File.WriteAllText(Path.Combine(repo, "c"), "other\n");
+    Git(repo, "add c");
+    Git(repo, "commit -q -m other");
+    string onOther = Rev("HEAD");
+    Git(repo, "checkout -q main");
+    Git(repo, "stash pop -q");
+    Check("fixup: a commit HEAD does not contain is refused",
+        svc.PlanFixupEdit(repo, onOther).Refusal == FixupEditRefusal.NotInCurrentBranch, $"{svc.PlanFixupEdit(repo, onOther).Refusal}");
+
+    FixupEditPlan plan = svc.PlanFixupEdit(repo, a);
+    Check("fixup: the plan rebases onto the first parent", plan.Refusal is null && plan.Parent == root, $"{plan}");
+    Check("fixup: no merge, no --rebase-merges", !plan.RangeHasMerges && !plan.RebaseChoice.RebaseMerges, $"{plan}");
+    Check("fixup: upstream's command line",
+        BranchTagService.BuildRebaseArguments(plan.RebaseChoice).ToString() is { } line
+            && line.Contains("-i", StringComparison.Ordinal) && line.Contains("--autosquash", StringComparison.Ordinal)
+            && line.Contains("--autostash", StringComparison.Ordinal) && line.Contains(root, StringComparison.Ordinal),
+        BranchTagService.BuildRebaseArguments(plan.RebaseChoice).ToString());
+
+    CommitFixupTarget target = new(a, plan.Subject);
+    Check("fixup: the message is fixup! <subject>", target.Message == "fixup! A", target.Message);
+    Check("fixup: a fixup of a fixup keeps one prefix",
+        new CommitFixupTarget(a, "fixup! A").Message == "fixup! A", new CommitFixupTarget(a, "fixup! A").Message);
+
+    // What the commit dialog does in fixup mode: commit what is staged with that
+    // message. An unstaged leftover is there to ride through the auto-stash.
+    Git(repo, "add a");
+    File.WriteAllText(Path.Combine(repo, "b"), "B\nleftover\n");
+    Git(repo, "commit -q -m \"" + target.Message + "\"");
+    BranchTagResult rebased = new BranchTagService().RebaseStreaming(repo, plan.RebaseChoice, _ => { });
+    Check("fixup: the rebase succeeds", rebased.Success, rebased.Output);
+    Check("fixup: the fixup commit is gone", Git(repo, "log --format=%s").Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        is ["B", "A", "base"], Git(repo, "log --format=%s"));
+    Check("fixup: the change is in A", Git(repo, "show HEAD~1:a") == "base\nA fixed\n", Git(repo, "show HEAD~1:a"));
+    Check("fixup: the leftover is back in the work tree",
+        File.ReadAllText(Path.Combine(repo, "b")) == "B\nleftover\n" && Git(repo, "stash list").Length == 0,
+        File.ReadAllText(Path.Combine(repo, "b")) + Git(repo, "stash list"));
+
+    // A merge after the target: kept with --rebase-merges.
+    Git(repo, "checkout -q -- b");
+    Git(repo, "checkout -q -b side HEAD~1");
+    File.WriteAllText(Path.Combine(repo, "s"), "S\n");
+    Git(repo, "add s");
+    Git(repo, "commit -q -m S");
+    Git(repo, "checkout -q main");
+    Git(repo, "merge -q --no-ff side -m merged");
+    string a2 = Rev("HEAD~1~1");
+    File.WriteAllText(Path.Combine(repo, "a"), "base\nA fixed twice\n");
+    FixupEditPlan withMerge = svc.PlanFixupEdit(repo, a2);
+    Check("fixup: a merge in the range asks for --rebase-merges", withMerge.RangeHasMerges, $"{withMerge}");
+    Git(repo, "commit -q -am \"" + new CommitFixupTarget(a2, withMerge.Subject).Message + "\"");
+    BranchTagResult kept = new BranchTagService().RebaseStreaming(repo, withMerge.RebaseChoice, _ => { });
+    Check("fixup: the rebase over a merge succeeds", kept.Success, kept.Output);
+    Check("fixup: the merge survives", Git(repo, "rev-list --merges --count HEAD").Trim() == "1", Git(repo, "log --graph --oneline"));
+    Check("fixup: the fixup melted into A over the merge",
+        !Git(repo, "log --format=%s").Contains("fixup!", StringComparison.Ordinal)
+            && Git(repo, "show HEAD~1~1:a") == "base\nA fixed twice\n",
+        Git(repo, "log --graph --oneline"));
+
+    // A rebase already stopped: refused.
+    File.WriteAllText(Path.Combine(repo, "a"), "dirty\n");
+    Git(repo, "stash -q");
+    Git(repo, "-c sequence.editor=\"sed -i s/^pick/edit/\" rebase -i HEAD~1");
+    File.WriteAllText(Path.Combine(repo, "a"), "dirty\n");
+    Check("fixup: a rebase in progress is refused",
+        svc.PlanFixupEdit(repo, Rev("HEAD")).Refusal == FixupEditRefusal.OperationInProgress, Git(repo, "status"));
+    Git(repo, "checkout -q -- a");
     Git(repo, "rebase --abort");
 }
 

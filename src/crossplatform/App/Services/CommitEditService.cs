@@ -10,6 +10,63 @@ namespace GitExtensions.Avalonia.Services;
 public sealed record CommitEditResult(bool Success, string Output);
 
 /// <summary>
+///  The commit a fixup commit is made for — upstream's <c>FormCommit</c> opened with
+///  <c>CommitKind.Fixup</c> and an <c>editedCommit</c> (<c>FormCommit.cs:209</c>).
+/// </summary>
+/// <param name="Hash">Full hash of the commit being fixed up.</param>
+/// <param name="Subject">Its subject line: the message becomes <c>fixup! &lt;subject&gt;</c>.</param>
+public sealed record CommitFixupTarget(string Hash, string Subject)
+{
+    /// <summary>The prefix git's <c>--autosquash</c> matches on (<c>CommitKindExtensions.GetPrefix</c>).</summary>
+    public const string Prefix = "fixup!";
+
+    /// <summary>
+    ///  <c>fixup! &lt;subject&gt;</c>, without doubling a prefix the subject already has
+    ///  (upstream's <c>TryAddPrefix</c>, <c>FormCommit.cs:548-553</c>): a fixup of a
+    ///  fixup must still name the original subject for autosquash to find it.
+    /// </summary>
+    public string Message => Subject.StartsWith(Prefix, StringComparison.Ordinal) ? Subject : $"{Prefix} {Subject}";
+}
+
+/// <summary>Why "Edit commit by creating a fixup commit" will not start.</summary>
+public enum FixupEditRefusal
+{
+    /// <summary>A rebase, merge, cherry-pick or revert is already stopped in this worktree.</summary>
+    OperationInProgress,
+
+    /// <summary>The commit has no parent to rebase onto.</summary>
+    RootCommit,
+
+    /// <summary>HEAD does not contain the commit, so rebasing HEAD cannot edit it.</summary>
+    NotInCurrentBranch,
+
+    /// <summary>The working tree has nothing that could go into the fixup commit.</summary>
+    NothingToCommit,
+}
+
+/// <summary>
+///  The outcome of <see cref="CommitEditService.PlanFixupEdit"/>: a refusal, or the
+///  parent to rebase onto, the subject the fixup message is built from and whether the
+///  range holds merges that <c>--rebase-merges</c> must keep.
+/// </summary>
+public sealed record FixupEditPlan(FixupEditRefusal? Refusal, string Parent, string Subject, bool RangeHasMerges)
+{
+    public static FixupEditPlan Refused(FixupEditRefusal refusal) => new(refusal, string.Empty, string.Empty, false);
+
+    /// <summary>
+    ///  Upstream's <c>Commands.RebaseOptions</c> for the edit: interactive, autosquash
+    ///  and autostash onto the first parent (the unstaged leftovers of the fixup commit
+    ///  ride through the stash); <c>--rebase-merges</c> only when the range needs it.
+    /// </summary>
+    public RebaseChoice RebaseChoice => new(
+        Onto: Parent,
+        Interactive: true,
+        AutoSquash: true,
+        AutoStash: true,
+        RebaseMerges: RangeHasMerges);
+}
+
+/// <summary>
 ///  Commit-editing operations for the revision grid — reword, squash-with-previous
 ///  and fixup-with-previous — implemented as safe, non-interactive autosquash-style
 ///  rebases on the current branch.
@@ -105,6 +162,68 @@ public sealed class CommitEditService
     /// </summary>
     public CommitEditResult Fixup(string repoPath, string hash)
         => SquashOrFixup(repoPath, hash, action: "fixup", message: null);
+
+    // ---- edit by fixup commit + autosquash (upstream af8e3a7e5) ---------------------
+
+    /// <summary>
+    ///  Everything "Edit commit by creating a fixup commit and squash-rebase" must know
+    ///  before it opens the commit dialog, in one blocking call: whether it may run at
+    ///  all, and with what rebase. Upstream only checks for a first parent
+    ///  (<c>RevisionGridControl.EditCommitWithFixupToolStripMenuItemClick</c>); the
+    ///  other refusals are cases where its rebase would do something other than the
+    ///  edit the user asked for.
+    /// </summary>
+    public FixupEditPlan PlanFixupEdit(string repoPath, string hash)
+    {
+        string git = GitPath(repoPath);
+
+        // A second rebase cannot start inside the first, and a commit made while a
+        // merge, cherry-pick or revert is stopped would conclude THAT operation.
+        CommitEditResult gitDir = Run(git, repoPath, null, null, "rev-parse", "--absolute-git-dir");
+        if (gitDir.Success && gitDir.Output.Length > 0
+            && OperationInProgress(gitDir.Output.Trim()))
+        {
+            return FixupEditPlan.Refused(FixupEditRefusal.OperationInProgress);
+        }
+
+        // Upstream's FirstParentId guard: the root commit has no parent to rebase onto.
+        CommitEditResult parent = Run(git, repoPath, null, null, "rev-parse", "--verify", "-q", hash + "^1");
+        if (!parent.Success || parent.Output.Trim().Length == 0)
+        {
+            return FixupEditPlan.Refused(FixupEditRefusal.RootCommit);
+        }
+
+        // `git rebase -i <parent>` replays HEAD's branch: for a commit HEAD does not
+        // contain it would move the current branch onto that commit's history instead
+        // of editing it — and the fixup would find no target in the todo.
+        if (!Run(git, repoPath, null, null, "merge-base", "--is-ancestor", hash, "HEAD").Success)
+        {
+            return FixupEditPlan.Refused(FixupEditRefusal.NotInCurrentBranch);
+        }
+
+        if (!IsWorkingTreeDirty(repoPath))
+        {
+            return FixupEditPlan.Refused(FixupEditRefusal.NothingToCommit);
+        }
+
+        // Measured on git 2.43: without --rebase-merges an interactive rebase flattens
+        // every merge in the range (upstream passes none), with it the merges are
+        // recreated and the fixup is still squashed — even into a merge commit itself.
+        // Only asked for when there IS a merge, so the common todo stays upstream's.
+        string parentHash = parent.Output.Trim();
+        CommitEditResult merges = Run(git, repoPath, null, null, "rev-list", "--merges", "--count", parentHash + "..HEAD");
+        bool hasMerges = merges.Success && int.TryParse(merges.Output.Trim(), out int count) && count > 0;
+
+        CommitEditResult subject = Run(git, repoPath, null, null, "log", "-1", "--format=%s", hash);
+        return new FixupEditPlan(null, parentHash, subject.Success ? subject.Output.Trim() : string.Empty, hasMerges);
+    }
+
+    private static bool OperationInProgress(string gitDir)
+        => Directory.Exists(Path.Combine(gitDir, "rebase-merge"))
+            || Directory.Exists(Path.Combine(gitDir, "rebase-apply"))
+            || File.Exists(Path.Combine(gitDir, "MERGE_HEAD"))
+            || File.Exists(Path.Combine(gitDir, "CHERRY_PICK_HEAD"))
+            || File.Exists(Path.Combine(gitDir, "REVERT_HEAD"));
 
     // ---- shared squash/fixup driver ------------------------------------------------
 
