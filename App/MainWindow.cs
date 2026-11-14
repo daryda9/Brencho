@@ -1611,7 +1611,7 @@ public sealed class MainWindow : Theming.ZoomWindow
 
         // Help: external documentation / project links (no repo required).
         _menu.UserManualRequested += () => Surface(_externalTools.OpenUrl("https://git-extensions-documentation.readthedocs.io/"));
-        _menu.ReportIssueRequested += () => Surface(_externalTools.OpenUrl("https://github.com/gitextensions/gitextensions/issues"));
+        _menu.ReportIssueRequested += () => Surface(_externalTools.OpenUrl("https://github.com/daryda9/Brencho/issues"));
         _menu.RevisionFilterRequested += () => _ = _revisions.ShowFilterDialogAsync();
 
         // The Navigate/View menus are a mirror of the grid's own command surface: the
@@ -1620,7 +1620,7 @@ public sealed class MainWindow : Theming.ZoomWindow
         _revisions.ViewOptionsChanged += options => _menu.SetViewOptions(options);
         _menu.SetViewOptions(_revisions.ViewOptions);
         _menu.ResetRevisionFiltersRequested += () => _revisions.ResetAllFilters();
-        _menu.ChangelogRequested += () => Surface(_externalTools.OpenUrl("https://github.com/gitextensions/gitextensions/releases"));
+        _menu.ChangelogRequested += () => Surface(_externalTools.OpenUrl("https://github.com/daryda9/Brencho/releases"));
         _menu.DonateRequested += () => Surface(_externalTools.OpenUrl("https://opencollective.com/gitextensions"));
 
         // ---- menu bar: GitHub. Fork-and-clone is the one entry that works with no
