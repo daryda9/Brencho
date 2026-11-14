@@ -6028,11 +6028,14 @@ public sealed class RevisionGridView : UserControl
             Badge(BuildNotesBadge());
         }
 
-        foreach (string refName in row.RefNames)
+        // Bisect markers first, as upstream sorts them (MessageColumnProvider.SortRefs
+        // ranks IsBisect 0); otherwise the order git listed the refs in.
+        foreach (string refName in row.RefNames.OrderBy(r => RefKindOf(r) == 'x' ? 0 : 1))
         {
             // Kind comes from the ref listing git gave us, not from the shape of the
             // name — see RefKindOf. Respect the remote/tag "View" toggles so what is
-            // badged stays consistent with what the walk includes.
+            // badged stays consistent with what the walk includes. The bisect markers
+            // are neither and are always drawn.
             char kind = RefKindOf(refName);
             if ((!_showRemotes && kind == 'r') || (!_showTags && kind == 't'))
             {
@@ -6047,7 +6050,7 @@ public sealed class RevisionGridView : UserControl
                 && kind == 'b'
                 && _currentBranch.Length > 0
                 && string.Equals(refName, _currentBranch, StringComparison.Ordinal);
-            Badge(BuildRefBadge(refName, isCurrent, view, kind));
+            Badge(BuildRefBadge(refName, isCurrent, view, kind, RemoteShownAsIcon(refName, kind)));
         }
 
         TextBlock subjectText = new()
@@ -6222,8 +6225,18 @@ public sealed class RevisionGridView : UserControl
     // remote-tracking branch, or tag — echoing the original GitExtensions look
     // (light background, 1px coloured border, coloured text). When isCurrent, the
     // pill is bold and prefixed by a small green ▶ marker for the checked-out branch.
+    //
+    // A bisect marker ('x') carries the good/bad glyph in front of its name, like
+    // upstream's _bisectGoodImage/_bisectBadImage, and is drawn in the dim ink upstream
+    // gives "other" refs. A remote branch whose remote is passed in iconRemote shows a
+    // cloud glyph instead of "remote/" (upstream's RefLabelIcon.RemoteForced); the
+    // full name stays in the tooltip.
     private static Control BuildRefBadge(
-        string refName, bool isCurrent = false, RevisionRowView? view = null, char refKind = '\0')
+        string refName,
+        bool isCurrent = false,
+        RevisionRowView? view = null,
+        char refKind = '\0',
+        string? iconRemote = null)
     {
         // Both the outline and the glyphs, by REFERENCE, so a live theme switch
         // repaints the pill without rebuilding the row (ThemeManager mutates the
@@ -6233,8 +6246,30 @@ public sealed class RevisionGridView : UserControl
             'r' => B("App.RefRemote"),
             't' => B("App.RefTag"),
             'b' => B("App.RefBranch"),
+            'x' => B("App.TextDim"),
             _ => RefBrush(refName),
         };
+
+        // The glyph in front of the caption, if any, and the caption itself.
+        string caption = refName;
+        string? glyph = null;
+        string glyphTint = Icons.Text;
+        if (refKind == 'x')
+        {
+            if (refName.StartsWith(BisectGoodName, StringComparison.Ordinal))
+            {
+                (glyph, glyphTint) = ("BisectGood", Icons.Green);
+            }
+            else if (refName.StartsWith(BisectBadName, StringComparison.Ordinal))
+            {
+                (glyph, glyphTint) = ("BisectBad", Icons.Red);
+            }
+        }
+        else if (iconRemote is not null)
+        {
+            caption = refName.Length == iconRemote.Length ? string.Empty : refName[(iconRemote.Length + 1)..];
+            (glyph, glyphTint) = ("Remote", "App.RefRemote");
+        }
 
         Border pill = new()
         {
@@ -6250,14 +6285,46 @@ public sealed class RevisionGridView : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        TextBlock caption = new()
+        TextBlock captionBlock = new()
         {
-            Text = refName,
+            Text = caption,
             Foreground = kind,
             FontSize = 11,
             FontWeight = isCurrent ? FontWeight.Bold : FontWeight.Normal,
             VerticalAlignment = VerticalAlignment.Center,
         };
+
+        if (refKind == 'x')
+        {
+            ToolTip.SetTip(
+                pill,
+                glyph == "BisectGood" ? T("TranslatedStrings/_markBisectAsGood.Text", "Marked as good in bisect")
+                : glyph == "BisectBad" ? T("TranslatedStrings/_markBisectAsBad.Text", "Marked as bad in bisect")
+                : refName);
+        }
+        else if (iconRemote is not null)
+        {
+            ToolTip.SetTip(pill, refName);
+        }
+
+        if (glyph is not null && IconLoader.Image(glyph, 12, glyphTint) is { } image)
+        {
+            image.VerticalAlignment = VerticalAlignment.Center;
+            image.Margin = new Thickness(0, 1, caption.Length > 0 ? 3 : 0, 0);
+            StackPanel withGlyph = new()
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            withGlyph.Children.Add(image);
+            if (caption.Length > 0)
+            {
+                withGlyph.Children.Add(captionBlock);
+            }
+
+            pill.Child = withGlyph;
+            return pill;
+        }
 
         // NOTE: the pill used to swap its backdrop to hard-coded opaque WHITE while its
         // row was selected. That was only ever right in the light theme, where the pill
@@ -6270,7 +6337,7 @@ public sealed class RevisionGridView : UserControl
 
         if (!isCurrent)
         {
-            pill.Child = caption;
+            pill.Child = captionBlock;
             return pill;
         }
 
@@ -6295,7 +6362,7 @@ public sealed class RevisionGridView : UserControl
             VerticalAlignment = VerticalAlignment.Center,
         };
         inside.Children.Add(marker);
-        inside.Children.Add(caption);
+        inside.Children.Add(captionBlock);
         pill.Child = inside;
         return pill;
     }
@@ -6304,6 +6371,37 @@ public sealed class RevisionGridView : UserControl
     // a "/" marks a remote-tracking ref (origin/main); a leading version-like
     // token (v1.2, 2.0) marks a tag. Local branches match neither.
     private static bool IsRemoteRef(string refName) => refName.Contains('/');
+
+    // GitRef.Name of refs/bisect/bad and refs/bisect/good-<sha> (GitRefName.RefsBisect*
+    // minus "refs/"). Only consulted for a name the ref listing does not know, so a
+    // local branch that happens to be called "bisect/..." is never taken for a marker.
+    private const string BisectPrefixName = "bisect/";
+    private const string BisectGoodName = "bisect/good";
+    private const string BisectBadName = "bisect/bad";
+
+    private static bool IsBisectRef(string refName) => refName.StartsWith(BisectPrefixName, StringComparison.Ordinal);
+
+    // The remote whose name the pill of this remote branch replaces with the cloud
+    // glyph, or null to keep the full name. Mirrors upstream's
+    // TryReplaceRemoteNameWithIcon: only when the colour identifies the remote (one
+    // remote here, see _iconRemote) and the glyph does not take more room than
+    // "remote/" did — a 12px glyph plus its 3px gap against about 6px per character,
+    // so a one-letter remote keeps its name.
+    private string? RemoteShownAsIcon(string refName, char kind)
+    {
+        if (kind != 'r'
+            || _iconRemote is not { } remote
+            || remote.Length < 2
+            || !_remoteOfRef.TryGetValue(refName, out string? owner)
+            || !string.Equals(owner, remote, StringComparison.Ordinal)
+            || !refName.StartsWith(remote, StringComparison.Ordinal)
+            || (refName.Length > remote.Length && refName[remote.Length] != '/'))
+        {
+            return null;
+        }
+
+        return remote;
+    }
 
     private static bool IsTagRef(string refName)
         => !IsRemoteRef(refName) && Regex.IsMatch(refName, @"^v?\d");
@@ -6378,6 +6476,15 @@ public sealed class RevisionGridView : UserControl
     // digits heuristics the badges use.
     private string _currentBranch = string.Empty;
     private Dictionary<string, char> _refKinds = new(StringComparer.Ordinal);
+
+    // Remote-tracking branch name -> its remote (origin/main -> origin), and the one
+    // remote whose name the pills may replace with the cloud icon (null when there is
+    // none). Upstream (a9c0918f4, MessageColumnProvider.TryReplaceRemoteNameWithIcon)
+    // drops the remote name only when the label COLOUR still identifies the remote.
+    // Here every remote shares App.RefRemote, so the colour identifies it exactly when
+    // there is a single remote.
+    private Dictionary<string, string> _remoteOfRef = new(StringComparer.Ordinal);
+    private string? _iconRemote;
 
     /// <summary>
     ///  Raised by the menu's "Select in left panel" entry with the ref name to
@@ -7018,7 +7125,7 @@ public sealed class RevisionGridView : UserControl
     private char RefKindOf(string refName)
         => _refKinds.TryGetValue(refName, out char known)
             ? known
-            : IsTagRef(refName) ? 't' : IsRemoteRef(refName) ? 'r' : 'b';
+            : IsBisectRef(refName) ? 'x' : IsTagRef(refName) ? 't' : IsRemoteRef(refName) ? 'r' : 'b';
 
     // Splits the row's refs into local branches / remote branches / tags using the
     // kind map loaded with the repository; falls back to the badge heuristics for a
@@ -7035,6 +7142,11 @@ public sealed class RevisionGridView : UserControl
             {
                 case 't': tags.Add(name); break;
                 case 'r': remote.Add(name); break;
+
+                // A bisect marker is no branch: nothing in the menu may check it out,
+                // merge it or delete it. It used to land among the remotes through the
+                // slash heuristic.
+                case 'x': break;
                 default: local.Add(name); break;
             }
         }
@@ -7530,13 +7642,23 @@ public sealed class RevisionGridView : UserControl
                 BranchTagListing listing = _branchTags.LoadRefs(repo);
 
                 Dictionary<string, char> kinds = new(StringComparer.Ordinal);
+                Dictionary<string, string> remoteOfRef = new(StringComparer.Ordinal);
+                HashSet<string> remotes = new(StringComparer.Ordinal);
                 List<(string Name, char Kind)> catalogue = [];
                 foreach (BranchTagRow branch in listing.Branches)
                 {
                     char kind = branch.IsRemote ? 'r' : 'b';
                     kinds[branch.Name] = kind;
                     catalogue.Add((branch.Name, kind));
+
+                    if (branch.IsRemote && branch.Remote.Length > 0)
+                    {
+                        remoteOfRef[branch.Name] = branch.Remote;
+                        remotes.Add(branch.Remote);
+                    }
                 }
+
+                string? iconRemote = remotes.Count == 1 ? remotes.First() : null;
 
                 foreach (BranchTagRow tag in listing.Tags)
                 {
@@ -7554,10 +7676,13 @@ public sealed class RevisionGridView : UserControl
                     // with the new HEAD while `_currentBranch` was still the old branch,
                     // and nothing rebuilt the rows once it caught up.
                     bool changed = !string.Equals(_currentBranch, current, StringComparison.Ordinal)
-                        || !SameKinds(_refKinds, kinds);
+                        || !SameKinds(_refKinds, kinds)
+                        || !string.Equals(_iconRemote, iconRemote, StringComparison.Ordinal);
 
                     _currentBranch = current;
                     _refKinds = kinds;
+                    _remoteOfRef = remoteOfRef;
+                    _iconRemote = iconRemote;
 
                     // The same listing feeds the "Filtered branches" ref picker, so
                     // it never runs a git call of its own.

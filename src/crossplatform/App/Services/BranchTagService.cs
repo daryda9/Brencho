@@ -21,6 +21,13 @@ public sealed record BranchTagRow(
     bool IsCurrent,
     string ObjectId)
 {
+    /// <summary>
+    ///  For a remote-tracking branch, the remote it belongs to (<c>IGitRef.Remote</c>,
+    ///  resolved by the core against the configured remotes, so a remote whose name
+    ///  contains a slash is still split correctly). Empty otherwise.
+    /// </summary>
+    public string Remote { get; init; } = string.Empty;
+
     public string Display
     {
         get
@@ -256,7 +263,10 @@ public sealed class BranchTagService
             else
             {
                 bool isCurrent = !gitRef.IsRemote && string.Equals(gitRef.Name, current, StringComparison.Ordinal);
-                branches.Add(new BranchTagRow(gitRef.Name, IsTag: false, gitRef.IsRemote, isCurrent, oid));
+                branches.Add(new BranchTagRow(gitRef.Name, IsTag: false, gitRef.IsRemote, isCurrent, oid)
+                {
+                    Remote = gitRef.IsRemote ? gitRef.Remote : string.Empty,
+                });
             }
         }
 
