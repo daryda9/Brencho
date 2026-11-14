@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using GitCommands;
+using GitCommands.Git;
 using GitCommands.Settings;
 using GitExtensions.Avalonia.Services;
 using GitExtensions.Avalonia.Theming;
@@ -100,6 +101,10 @@ public sealed class SettingsWindow : Theming.ZoomWindow
     // config that is none of those is appended as one more item, so it is shown and
     // written back verbatim instead of being lost.
     private readonly ComboBox[] _gitConfigCombos;
+
+    // The caption+combo row of each GitConfigChoices entry; a row is hidden when the
+    // installed version does not support the key (rebase.updaterefs before 2.38).
+    private readonly Control[] _gitConfigFields;
 
     // The level picked last, kept for the next time the dialog opens (upstream
     // 1cdac5aba remembers the chosen settings layer). Null until the user picks one.
@@ -530,13 +535,27 @@ public sealed class SettingsWindow : Theming.ZoomWindow
 
         // ---- Git config advanced: one value combo per key, written straight to git.
         _gitConfigCombos = new ComboBox[GitConfigChoices.Length];
-        Control[] gitConfigFields = new Control[GitConfigChoices.Length];
+        Control[] gitConfigFields = _gitConfigFields = new Control[GitConfigChoices.Length];
         for (int i = 0; i < GitConfigChoices.Length; i++)
         {
             (string key, string transKey, string label, string[] values) = GitConfigChoices[i];
             _gitConfigCombos[i] = GitConfigCombo(values);
             gitConfigFields[i] = GitConfigField(key, transKey, label, _gitConfigCombos[i], dim);
         }
+
+        // rebase.updaterefs exists since git 2.38: upstream hides the row when the git
+        // in use is older (GitConfigAdvancedSettingsPage: lblUpdateRefs.Visible =
+        // GitVersion.Current.SupportUpdateRefs), and so does the port. GitVersion.Current
+        // may still have to shell out to `git --version`, so it is read off the UI thread.
+        int updateRefsIndex = Array.FindIndex(GitConfigChoices, c => c.Key == "rebase.updaterefs");
+        Control updateRefsField = gitConfigFields[updateRefsIndex];
+        Async.Run(
+            async () =>
+            {
+                bool supported = await Task.Run(() => GitVersion.Current.SupportUpdateRefs);
+                updateRefsField.IsVisible = supported;
+            },
+            "Settings: git version for rebase.updaterefs");
 
         Panel gitConfigPanel = CategoryPanel(
             GitConfigKey, GitConfigText,
@@ -1724,6 +1743,10 @@ public sealed class SettingsWindow : Theming.ZoomWindow
             // Snapshot the values on the UI thread; the write runs off it.
             string?[] values = Array.ConvertAll(_gitConfigCombos, SelectedGitConfigValue);
 
+            // A row hidden because this git does not know the key (rebase.updaterefs
+            // before 2.38) is left alone: the user could not see or change it.
+            bool[] shown = Array.ConvertAll(_gitConfigFields, f => f.IsVisible);
+
             // git config is blocking; the dialog must not freeze on a slow repository.
             // Identity and the advanced keys share one store and one Save(), so the two
             // pages can never race each other over the same config file.
@@ -1744,7 +1767,10 @@ public sealed class SettingsWindow : Theming.ZoomWindow
                     // thing entirely, pinning the key against whatever a wider level says.
                     for (int i = 0; i < values.Length; i++)
                     {
-                        store.SetValue(GitConfigChoices[i].Key, values[i]);
+                        if (shown[i])
+                        {
+                            store.SetValue(GitConfigChoices[i].Key, values[i]);
+                        }
                     }
 
                     store.Save();
