@@ -94,24 +94,10 @@ public sealed partial class FormDeleteBranch : GitExtensionsDialog
             // always treat branches as unmerged if there is no current branch (HEAD is detached)
             bool hasUnmergedBranches = _currentBranch is null || DetachedHeadParser.IsDetachedHead(_currentBranch)
                 || selectedBranches.Any(branch => !_mergedBranches.Contains(branch.Name));
-            if (hasUnmergedBranches)
+            if (hasUnmergedBranches
+                && !MessageBoxes.ConfirmSuppressible(this, _deleteBranchQuestion.Text, _deleteBranchConfirmTitle.Text, AppSettings.DontConfirmDeleteUnmergedBranch, icon: TaskDialogIcon.Warning, footnote: _useReflogHint.Text, defaultNo: true))
             {
-                TaskDialogPage page = new()
-                {
-                    Text = _deleteBranchQuestion.Text,
-                    Caption = _deleteBranchConfirmTitle.Text,
-                    Icon = TaskDialogIcon.Warning,
-                    Buttons = { TaskDialogButton.Yes, TaskDialogButton.No },
-                    DefaultButton = TaskDialogButton.No,
-                    Footnote = _useReflogHint.Text,
-                    SizeToContent = true,
-                };
-
-                bool isConfirmed = TaskDialog.ShowDialog(Handle, page) == TaskDialogButton.Yes;
-                if (!isConfirmed)
-                {
-                    return;
-                }
+                return;
             }
         }
 
@@ -184,6 +170,7 @@ public sealed partial class FormDeleteBranch : GitExtensionsDialog
                 Icon = TaskDialogIcon.Warning,
                 Buttons = { TaskDialogButton.Yes, TaskDialogButton.No },
                 DefaultButton = TaskDialogButton.No,
+                AllowCancel = true,
                 SizeToContent = true,
             };
 

@@ -22,7 +22,7 @@ internal sealed class GitRefListsForRevision
         _allBranches = [.. revision.Refs.Where(h => !h.IsTag && (h.IsHead || h.IsRemote))];
         _localBranches = Array.FindAll(_allBranches, b => !b.IsRemote);
         _branchesWithNoIdenticalRemotes = [.. _allBranches.Where(b => !b.IsRemote ||
-                                                                  !_localBranches.Any(lb => lb.TrackingRemote == b.Remote && lb.MergeWith == b.LocalName))];
+                                                                  !_localBranches.Any(lb => lb.IsTrackingRemote(b)))];
 
         _tags = [.. revision.Refs.Where(h => h.IsTag)];
     }
@@ -34,16 +34,6 @@ internal sealed class GitRefListsForRevision
     public IReadOnlyList<IGitRef> AllTags => _tags;
 
     public IReadOnlyList<IGitRef> BranchesWithNoIdenticalRemotes => _branchesWithNoIdenticalRemotes;
-
-    public IReadOnlyList<string> GetAllBranchNames()
-    {
-        return Array.ConvertAll(_allBranches, b => b.Name);
-    }
-
-    public IReadOnlyList<string> GetAllTagNames()
-    {
-        return AllTags.Select(t => t.Name).ToArray();
-    }
 
     /// <summary>
     /// Returns the collection of branches and tags which can be deleted.

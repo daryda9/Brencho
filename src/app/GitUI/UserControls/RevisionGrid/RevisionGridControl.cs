@@ -116,7 +116,6 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
     private readonly TranslationString _rebaseBranch = new("Rebase branch.");
     private readonly TranslationString _rebaseBranchInteractive = new("Rebase branch interactively.");
     private readonly TranslationString _areYouSureRebase = new("Are you sure you want to rebase? This action will rewrite commit history.");
-    private readonly TranslationString _dontShowAgain = new("Don't show me this message again.");
     private readonly TranslationString _noMergeBaseCommit = new("There is no common ancestor for the selected commits.");
     private readonly TranslationString _invalidDiffContainsFilter = new("Filter text '{0}' not valid for \"Diff contains\" filter.");
 
@@ -147,7 +146,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
     /// </summary>
     private Lazy<IReadOnlyCollection<string>>? _ambiguousRefs;
 
-    private int _updatingFilters;
+    private int _suspendRefreshCounter;
 
     private IDisposable? _revisionSubscription;
     private GitRevision? _baseCommitToCompare;
@@ -288,7 +287,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
         };
 
         _toolTipProvider = new RevisionGridToolTipProvider(_gridView);
-        _toolTipProvider.ShowRevisionGridTooltips = AppSettings.ShowRevisionGridTooltips.Value;
+        _toolTipProvider.ShowRevisionGridTooltips = AppSettings.ShowRevisionGridTooltips;
 
         _quickSearchProvider = new QuickSearchProvider(_gridView, () => Module.WorkingDir);
 
@@ -374,7 +373,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             //// _refFilterOptions not disposable
             //// _lastVisibleResizableColumn not owned
             //// _maximizedColumn not owned
-            //// _revisionGraphColumnProvider not disposable
+            _revisionGraphColumnProvider.Dispose();
             //// _selectionTimer handled by this.components
             _buildServerWatcher?.Dispose();
             _customDiffToolsSequence.Dispose();
@@ -575,15 +574,15 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
     ///  Prevents revisions refreshes and stops <see cref="PerformRefreshRevisions"/> from executing
     ///  until <see cref="ResumeRefreshRevisions"/> is called.
     /// </summary>
-    internal void SuspendRefreshRevisions() => _updatingFilters++;
+    internal void SuspendRefreshRevisions() => ++_suspendRefreshCounter;
 
     /// <summary>
     ///  Resume revisions refreshes.
     /// </summary>
     internal void ResumeRefreshRevisions()
     {
-        --_updatingFilters;
-        DebugHelpers.Assert(_updatingFilters >= 0, $"{nameof(ResumeRefreshRevisions)} was called without matching {nameof(SuspendRefreshRevisions)}!");
+        --_suspendRefreshCounter;
+        DebugHelpers.Assert(_suspendRefreshCounter >= 0, $"{nameof(ResumeRefreshRevisions)} was called without matching {nameof(SuspendRefreshRevisions)}!");
     }
 
     public void SetAndApplyBranchFilter(string filter)
@@ -956,29 +955,79 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
     }
 
     /// <summary>
-    ///  Indicates whether the revision grid can be refreshed, i.e. it is not currently being refreshed
-    ///  or it is not in a middle of reconfiguration process guarded by <see cref="SuspendRefreshRevisions"/>
-    ///  and <see cref="ResumeRefreshRevisions"/>.
+    ///  Indicates whether the revision grid can be refreshed, i.e. it is not in a middle of a reconfiguration
+    ///  process guarded by <see cref="SuspendRefreshRevisions"/> and <see cref="ResumeRefreshRevisions"/>.
     /// </summary>
-    private bool CanRefresh => !_isRefreshingRevisions && _updatingFilters == 0;
+    /// <remarks>
+    ///  A refresh which is already running does not prevent a new one: the new refresh cancels and replaces
+    ///  the running one, see <see cref="CancelRefreshRevisions"/>. Dropping the new refresh instead would
+    ///  silently discard it, e.g. leaving the grid of the previous repository displayed after a repository
+    ///  or submodule switch which happened while the grid was still loading.
+    /// </remarks>
+    private bool CanRefresh => _suspendRefreshCounter == 0;
 
     #region PerformRefreshRevisions
+
+    /// <summary>
+    ///  Cancels a revisions refresh which may be running and resets the related state.
+    /// </summary>
+    /// <remarks>
+    ///  A cancelled load never reaches the continuations resetting <see cref="_isRefreshingRevisions"/> and
+    ///  marking the grid as loaded (they are skipped once the token is cancelled), so both have to be reset
+    ///  here on its behalf - otherwise the grid could never be refreshed again for the rest of the session.
+    /// </remarks>
+    internal void CancelRefreshRevisions()
+    {
+        ThreadHelper.AssertOnUIThread();
+
+        // Note: unlike CancelBackgroundTasks() this must not cancel _customDiffToolsSequence,
+        // that would leave the custom difftool menu unpopulated.
+        _refreshRevisionsSequence.CancelCurrent();
+
+        // Stop the superseded reader from feeding revisions into the grid.
+        _revisionSubscription?.Dispose();
+        _revisionSubscription = null;
+
+        _isRefreshingRevisions = false;
+        _gridView.MarkAsDataLoadingCancelled();
+    }
 
     /// <summary>
     ///  Queries git for the new set of revisions and refreshes the grid.
     /// </summary>
     /// <exception cref="Exception"></exception>
-    /// <param name="forceRefresh">Refresh may be required as references may be changed.</param>
-    public void PerformRefreshRevisions(Func<RefsFilter, IReadOnlyList<IGitRef>> getRefs = null!, bool forceRefresh = false)
+    /// <param name="forceRefreshRefs">Refresh may be required as references may be changed.</param>
+    public void PerformRefreshRevisions(Func<RefsFilter, IReadOnlyList<IGitRef>> getRefs = null!, bool forceRefreshRefs = false)
     {
         ThreadHelper.AssertOnUIThread();
 
         if (!CanRefresh)
         {
-            Trace.WriteLine("Ignoring refresh as RefreshRevisions() is already running.");
+            Trace.WriteLine("Ignoring refresh as RefreshRevisions() is suspended.");
             return;
         }
 
+        if (_isRefreshingRevisions)
+        {
+            CancelRefreshRevisions();
+        }
+
+        // The synchronous part below pumps messages (Refresh(), Focus(), FilterChanged, ...) and must not be
+        // re-entered. This preserves the re-entrancy protection which the _isRefreshingRevisions latch used to
+        // provide in CanRefresh - overlapping refreshes could leave a blank revision grid, see ee79afc2a.
+        SuspendRefreshRevisions();
+        try
+        {
+            PerformRefreshRevisionsCore(getRefs, forceRefreshRefs);
+        }
+        finally
+        {
+            ResumeRefreshRevisions();
+        }
+    }
+
+    private void PerformRefreshRevisionsCore(Func<RefsFilter, IReadOnlyList<IGitRef>> getRefs, bool forceRefreshRefs)
+    {
         IGitModule capturedModule = Module;
 
         // Reset the "cache" for current branch
@@ -1001,6 +1050,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
         _isRefreshingRevisions = true;
 
         ILookup<ObjectId, IGitRef>? refsByObjectId = null;
+        int dataLoadId = 0;
         bool firstRevisionReceived = false;
         bool headIsHandled = false;
         Dictionary<ObjectId, GitRevision>? stashesById = null;
@@ -1039,7 +1089,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             _gridView.Enabled = true;
             _gridView.Focus();
             _gridView.SelectionChanged += OnGridViewSelectionChanged;
-            _gridView.MarkAsDataLoading();
+            dataLoadId = _gridView.MarkAsDataLoading();
 
             // Add the spinner controls, removed by SetPage()
             Controls.Add(_loadingControlSpinner);
@@ -1197,7 +1247,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
                         observeRevisions,
                         _filterInfo.GetRevisionFilter(currentCheckout),
                         pathFilter,
-                        AppSettings.ShowGitNotesColumn.Value || AppSettings.ShowGitNotes,
+                        AppSettings.ShowGitNotesColumn || AppSettings.ShowGitNotes,
                         ResourceManager.TranslatedStrings.Autostash,
                         cancellationToken);
                 },
@@ -1205,7 +1255,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             });
 
             // Initiate update left panel
-            RevisionsLoading?.Invoke(this, new RevisionLoadEventArgs(this, UICommands, getUnfilteredRefs, getStashRevs, forceRefresh));
+            RevisionsLoading?.Invoke(this, new RevisionLoadEventArgs(this, UICommands, getUnfilteredRefs, getStashRevs, forceRefreshRefs));
         }
         catch
         {
@@ -1223,13 +1273,8 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             }
 
             selectedRef.IsSelected = true;
-
-            string selectedRemote = selectedRef.TrackingRemote;
-            string selectedMerge = selectedRef.MergeWith;
             IGitRef? selectedHeadMergeSource = gitRefs.FirstOrDefault(
-                gitRef => gitRef.IsRemote
-                     && selectedRemote == gitRef.Remote
-                     && selectedMerge == gitRef.LocalName);
+                gitRef => selectedRef.IsTrackingRemote(gitRef));
 
             selectedHeadMergeSource?.IsSelectedHeadMergeSource = true;
         }
@@ -1324,20 +1369,29 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
         void OnRevisionRead(IReadOnlyList<GitRevision> revisions)
         {
+            // This runs on the thread pool, so it can still be invoked for a load which has meanwhile been
+            // cancelled and superseded. Its revisions must not be added to the grid, they may even belong to
+            // another repository. OperationCanceledException must not escape either, it would kill the app.
+            try
+            {
+                OnRevisionReadCore(revisions);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        void OnRevisionReadCore(IReadOnlyList<GitRevision> revisions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!firstRevisionReceived)
             {
                 // Wait for refs,CurrentCheckout and stashes as second step
                 this.InvokeAndForget(() => ShowLoading(showSpinner: false));
-                try
-                {
-                    semaphoreUpdateGrid.Wait(cancellationToken);
-                    semaphoreUpdateGrid.Wait(cancellationToken);
-                    firstRevisionReceived = true;
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
+                semaphoreUpdateGrid.Wait(cancellationToken);
+                semaphoreUpdateGrid.Wait(cancellationToken);
+                firstRevisionReceived = true;
             }
 
             const int artificialCommitCount = 2;
@@ -1454,9 +1508,16 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
         void OnRevisionReaderError(Exception exception)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // This load has been cancelled and superseded. Reporting the error would cancel the load which
+                // replaced it and would replace its grid with an ErrorControl.
+                return;
+            }
+
             _refreshRevisionsSequence.CancelCurrent();
 
-            _gridView.MarkAsDataLoadingComplete();
+            _gridView.MarkAsDataLoadingComplete(dataLoadId);
             this.InvokeAndForget(() => SetPage(new ErrorControl()));
             _isRefreshingRevisions = false;
 
@@ -1466,6 +1527,12 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
         void OnRevisionReadCompleted()
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // This load has been cancelled and superseded, the grid belongs to a newer load now.
+                return;
+            }
+
             if (!firstRevisionReceived && !FilterIsApplied())
             {
                 ThreadHelper.FileAndForget(async () =>
@@ -1474,7 +1541,8 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
                     await semaphoreUpdateGrid.WaitAsync(cancellationToken);
 
                     bool showArtificial = AddArtificialRevisions();
-                    _gridView.LoadingCompleted();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    _gridView.LoadingCompleted(dataLoadId);
 
                     await this.SwitchToMainThreadAsync(cancellationToken);
                     if (showArtificial)
@@ -1488,7 +1556,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
                     }
 
                     _isRefreshingRevisions = false;
-                    RevisionsLoaded?.Invoke(this, new RevisionLoadEventArgs(this, UICommands, getUnfilteredRefs, getStashRevs, forceRefresh));
+                    RevisionsLoaded?.Invoke(this, new RevisionLoadEventArgs(this, UICommands, getUnfilteredRefs, getStashRevs, forceRefreshRefs));
                 });
                 return;
             }
@@ -1544,14 +1612,15 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
                     _gridView.SetToBeSelectedFromParents(parents);
                 }
 
-                _gridView.LoadingCompleted();
+                cancellationToken.ThrowIfCancellationRequested();
+                _gridView.LoadingCompleted(dataLoadId);
 
                 await this.SwitchToMainThreadAsync(cancellationToken);
 
                 SetPage(_gridView);
 
                 _isRefreshingRevisions = false;
-                RevisionsLoaded?.Invoke(this, new RevisionLoadEventArgs(this, UICommands, getUnfilteredRefs, getStashRevs, forceRefresh));
+                RevisionsLoaded?.Invoke(this, new RevisionLoadEventArgs(this, UICommands, getUnfilteredRefs, getStashRevs, forceRefreshRefs));
 
                 await TaskScheduler.Default;
 
@@ -1931,6 +2000,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             else
             {
                 _gridView.InvalidateRow(e.RowIndex);
+                UpdateLaneHighlight(hitInfo?.GitRef, e.RowIndex);
             }
         }
 
@@ -1965,12 +2035,22 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
         if (_messageColumnProvider.SetHighlight(-1, hitInfo: null))
         {
             _gridView.Invalidate();
+            UpdateLaneHighlight(gitRef: null, rowIndex: -1);
         }
 
         if (_gridView.Cursor == Cursors.Hand)
         {
             _gridView.Cursor = Cursors.Default;
         }
+    }
+
+    private void UpdateLaneHighlight(IGitRef? gitRef, int rowIndex)
+    {
+        this.InvokeAndForget(async () =>
+        {
+            await _revisionGraphColumnProvider.SetHoverHighlightAsync(gitRef, rowIndex);
+            _gridView.RequestRedrawWithoutClear();
+        });
     }
 
     private void OnGridViewCellMouseDown(object? sender, DataGridViewCellMouseEventArgs e)
@@ -2005,8 +2085,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
                 if (hitInfo?.GitRef is { } gitRef)
                 {
-                    bool isVirtualAheadBehingRef = gitRef.Guid is null;
-                    if (isVirtualAheadBehingRef)
+                    if (gitRef is NestledVirtualRef)
                     {
                         // Let the related ref be added to the selection afterwards in order to simulate standard Ctrl+click behavior.
                         // For this, let DataGridView's native Ctrl+click processing select this revision again first.
@@ -2239,19 +2318,17 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             (focused && advanced ? tsmiOtherActions.DropDownItems : mainContextMenu.Items).Add(item);
         }
 
-        IGitRef? clickedRef = _rightClickedHitInfo?.GitRef;
-        string? relatedBranch = clickedRef is { Guid: null }
-            ? clickedRef.MergeWith.StartsWith(GitRefName.RefsRemotesPrefix)
-                ? clickedRef.MergeWith[GitRefName.RefsRemotesPrefix.Length..]
-                : clickedRef.MergeWith[GitRefName.RefsHeadsPrefix.Length..]
-            : null;
+        IGitRef? clickedRef = _rightClickedHitInfo?.GitRef is NestledVirtualRef nestedRef
+            ? nestedRef.TargetRef
+            : _rightClickedHitInfo?.GitRef;
         _rightClickedHitInfo = null;
         Func<IEnumerable<IGitRef>, IEnumerable<IGitRef>> filterRefs = clickedRef is null
             ? refs => refs
-            : refs => refs.Where(r => r == clickedRef || r.Name == relatedBranch);
-        copyToClipboardToolStripMenuItem.SetFilterRefsFunc(clickedRef is null
-            ? refNames => refNames
-            : refNames => refNames.Where(r => r == clickedRef.Name || r == relatedBranch));
+            : refs => refs.Where(r => r == clickedRef);
+        Func<IEnumerable<IGitRef>, IEnumerable<IGitRef>> filterRefsByTracking = clickedRef is null
+            ? refs => refs
+            : refs => refs.Where(r => r == clickedRef || r.IsTrackingRemote(clickedRef));
+        copyToClipboardToolStripMenuItem.SetFilterRefsFunc(filterRefs);
 
         bool inTheMiddleOfBisect = Module.InTheMiddleOfBisect();
         SetEnabled(markRevisionAsBadToolStripMenuItem, inTheMiddleOfBisect);
@@ -2287,7 +2364,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
         string currentBranchRef = GitRefName.RefsHeadsPrefix + CurrentBranch.Value;
 
         bool currentBranchPointsToRevision = false;
-        foreach (IGitRef head in filterRefs(gitRefListsForRevision.BranchesWithNoIdenticalRemotes))
+        foreach (IGitRef head in filterRefsByTracking(gitRefListsForRevision.BranchesWithNoIdenticalRemotes))
         {
             if (head.CompleteName == currentBranchRef)
             {
@@ -2515,34 +2592,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             return;
         }
 
-        if (AppSettings.DontConfirmRebase)
-        {
-            UICommands.StartRebase(ParentForm, _rebaseOnTopOf);
-            return;
-        }
-
-        TaskDialogPage page = new()
-        {
-            Text = _areYouSureRebase.Text,
-            Caption = _rebaseConfirmTitle.Text,
-            Heading = _rebaseBranch.Text,
-            Buttons = { TaskDialogButton.Yes, TaskDialogButton.No },
-            Icon = TaskDialogIcon.Information,
-            Verification = new TaskDialogVerificationCheckBox
-            {
-                Text = _dontShowAgain.Text
-            },
-            SizeToContent = true
-        };
-
-        TaskDialogButton result = TaskDialog.ShowDialog(Handle, page);
-
-        if (page.Verification.Checked)
-        {
-            AppSettings.DontConfirmRebase = true;
-        }
-
-        if (result == TaskDialogButton.Yes)
+        if (MessageBoxes.ConfirmSuppressible(this, _areYouSureRebase.Text, _rebaseConfirmTitle.Text, AppSettings.DontConfirmRebase, heading: _rebaseBranch.Text))
         {
             UICommands.StartRebase(ParentForm, _rebaseOnTopOf);
         }
@@ -2555,34 +2605,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
             return;
         }
 
-        if (AppSettings.DontConfirmRebase)
-        {
-            UICommands.StartInteractiveRebase(ParentForm, _rebaseOnTopOf);
-            return;
-        }
-
-        TaskDialogPage page = new()
-        {
-            Text = _areYouSureRebase.Text,
-            Caption = _rebaseConfirmTitle.Text,
-            Heading = _rebaseBranchInteractive.Text,
-            Buttons = { TaskDialogButton.Yes, TaskDialogButton.No },
-            Icon = TaskDialogIcon.Information,
-            Verification = new TaskDialogVerificationCheckBox
-            {
-                Text = _dontShowAgain.Text
-            },
-            SizeToContent = true
-        };
-
-        TaskDialogButton result = TaskDialog.ShowDialog(Handle, page);
-
-        if (page.Verification.Checked)
-        {
-            AppSettings.DontConfirmRebase = true;
-        }
-
-        if (result == TaskDialogButton.Yes)
+        if (MessageBoxes.ConfirmSuppressible(this, _areYouSureRebase.Text, _rebaseConfirmTitle.Text, AppSettings.DontConfirmRebase, heading: _rebaseBranchInteractive.Text))
         {
             UICommands.StartInteractiveRebase(ParentForm, _rebaseOnTopOf);
         }
@@ -2761,7 +2784,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
                 if (page.Verification.Checked)
                 {
-                    AppSettings.DontConfirmStashDrop = true;
+                    AppSettings.DontConfirmStashDrop.Value = true;
                 }
             }
 
@@ -2781,6 +2804,40 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
         }
 
         UICommands.StartFixupCommitDialog(ParentForm, LatestSelectedRevision);
+    }
+
+    private void EditCommitWithFixupToolStripMenuItemClick(object sender, EventArgs e)
+    {
+        if (LatestSelectedRevision is not { } revision || GetActualRevision(revision)?.FirstParentId is not { IsZero: false } parentRevision)
+        {
+            return;
+        }
+
+        using FormCommit form = new(UICommands, CommitKind.Fixup, revision);
+        form.CommitCreated += OnFixupCommitCreated;
+        form.ShowDialog(ParentForm);
+
+        return;
+
+        void OnFixupCommitCreated(object? sender, EventArgs e)
+        {
+            form.CommitCreated -= OnFixupCommitCreated;
+
+            string rebaseCmd = Commands.Rebase(new Commands.RebaseOptions()
+            {
+                BranchName = parentRevision.ToString(),
+                Interactive = true,
+                AutoSquash = true,
+                AutoStash = true,
+                SupportRebaseMerges = Module.GitVersion.SupportRebaseMerges
+            });
+
+            using FormProcess formProcess = new(UICommands, arguments: rebaseCmd, Module.WorkingDir, input: null, useDialogSettings: true);
+
+            formProcess.ShowDialog(form);
+            PerformRefreshRevisions();
+            ArtificialChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void SquashCommitToolStripMenuItemClick(object sender, EventArgs e)
@@ -2914,7 +2971,7 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
     internal void ToggleShowGitNotesColumn()
     {
-        AppSettings.ShowGitNotesColumn.Value = !AppSettings.ShowGitNotesColumn.Value;
+        AppSettings.ShowGitNotesColumn.Value = !AppSettings.ShowGitNotesColumn;
         PerformRefreshRevisions();
     }
 
@@ -3241,15 +3298,15 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
     private void GoToRelatedRef(IGitRef gitRef, Action<string>? handleGone = null, bool toggleSelection = false)
     {
-        if (gitRef.Guid is null)
+        if (gitRef is NestledVirtualRef nestledRef)
         {
-            if (gitRef.Name == AheadBehindData.GoneSymbol)
+            if (nestledRef.TrackingBranchIsGone)
             {
-                handleGone?.Invoke(gitRef.MergeWith[GitRefName.RefsHeadsPrefix.Length..]);
+                handleGone?.Invoke(nestledRef.MergeWith);
             }
             else
             {
-                GoToRef(gitRef.CompleteName, showNoRevisionMsg: true, toggleSelection);
+                GoToRef(nestledRef.CompleteName, showNoRevisionMsg: true, toggleSelection);
             }
         }
         else if (_messageColumnProvider.GetAheadBehindData(gitRef.IsRemote, gitRef.CompleteName) is { } aheadBehindData)
@@ -3636,6 +3693,14 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
         public bool IsDataLoadComplete =>
             _revisionGridControl._gridView.IsDataLoadComplete;
 
+        public bool IsRefreshingRevisions
+        {
+            get => _revisionGridControl._isRefreshingRevisions;
+            set => _revisionGridControl._isRefreshingRevisions = value;
+        }
+
+        public RevisionGridToolTipProvider ToolTipProvider => _revisionGridControl._toolTipProvider;
+
         public void ClearSelection()
         {
             _revisionGridControl._gridView.ClearSelection();
@@ -3645,6 +3710,11 @@ public sealed partial class RevisionGridControl : GitModuleControl, ICheckRefs, 
 
     public void OnRepositoryChanged()
     {
+        // The revisions of the previous repository are of no interest any more. Cancel their load explicitly:
+        // the refresh for the new repository would otherwise be dropped while this one is still running,
+        // leaving the grid of the previous repository displayed indefinitely (#12792).
+        CancelRefreshRevisions();
+
         _buildServerWatcher.OnRepositoryChanged();
     }
 }

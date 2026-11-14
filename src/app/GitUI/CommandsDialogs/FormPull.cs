@@ -261,12 +261,7 @@ public sealed partial class FormPull : GitExtensionsDialog
                 messageBoxTitle = string.Format(_pruneFromCaption.Text, remote);
             }
 
-            bool isActionConfirmed = AppSettings.DontConfirmFetchAndPruneAll
-                                     || MessageBoxes.Show(
-                                         owner,
-                                         _pullFetchPruneAllConfirmation.Text,
-                                         messageBoxTitle,
-                                         MessageBoxButtons.YesNo) == DialogResult.Yes;
+            bool isActionConfirmed = MessageBoxes.ConfirmSuppressible(owner ?? this, _pullFetchPruneAllConfirmation.Text, messageBoxTitle, AppSettings.DontConfirmFetchAndPruneAll);
 
             if (!isActionConfirmed)
             {
@@ -402,7 +397,7 @@ public sealed partial class FormPull : GitExtensionsDialog
             page.Buttons.Add(btnCheckout);
             page.Buttons.Add(btnContinue);
 
-            TaskDialogButton result = TaskDialog.ShowDialog(owner?.Handle ?? default, page);
+            TaskDialogButton result = TaskDialog.ShowDialog(owner?.Handle ?? Handle, page);
             if (result == TaskDialogButton.Cancel)
             {
                 return DialogResult.Cancel;
@@ -528,7 +523,7 @@ public sealed partial class FormPull : GitExtensionsDialog
                 // If the "Update submodules on checkout" option is `true`, initialize and update
                 // all submodules. If it's `false` don't initialize/update the submodules. If it's
                 // indeterminate, ask the user what they'd like to do.
-                if (AppSettings.UpdateSubmodulesOnCheckout ?? AppSettings.DontConfirmUpdateSubmodulesOnCheckout ?? AskIfSubmodulesShouldBeInitialized())
+                if (AppSettings.UpdateSubmodulesOnCheckout ?? AppSettings.DontConfirmUpdateSubmodulesOnCheckout.Value ?? AskIfSubmodulesShouldBeInitialized())
                 {
                     UICommands.StartUpdateSubmodulesDialog(this);
                 }
@@ -588,12 +583,15 @@ public sealed partial class FormPull : GitExtensionsDialog
                     {
                         Text = TranslatedStrings.DontShowAgain
                     },
+                    AllowCancel = true,
                     SizeToContent = true
                 };
 
-                messageBoxResult = TaskDialog.ShowDialog(owner?.Handle ?? IntPtr.Zero, page) == TaskDialogButton.Yes;
+                TaskDialogButton answer = TaskDialog.ShowDialog(owner?.Handle ?? Handle, page);
+                messageBoxResult = answer == TaskDialogButton.Yes;
 
-                if (page.Verification.Checked)
+                // Dismissing the dialog is not an answer, so it must not be remembered as one
+                if (page.Verification.Checked && answer != TaskDialogButton.Cancel)
                 {
                     AppSettings.AutoPopStashAfterPull = messageBoxResult;
                 }

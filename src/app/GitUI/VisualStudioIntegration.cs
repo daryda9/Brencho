@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using EnvDTE;
@@ -26,7 +26,12 @@ internal static class VisualStudioIntegration
             Executable executable = new(vswhere);
             ArgumentBuilder arguments =
             [
+                "-prerelease", // Include prerelease versions of Visual Studio in the search.
                 "-latest",
+                "-requires Microsoft.VisualStudio.Product.Enterprise",
+                "-requires Microsoft.VisualStudio.Product.Professional",
+                "-requires Microsoft.VisualStudio.Product.Community",
+                "-requiresAny",
                 "-property productPath"
             ];
             _devEnvPath = await executable.GetOutputAsync(arguments);
@@ -40,13 +45,15 @@ internal static class VisualStudioIntegration
 
     public static void OpenFile(string filePath, int lineNumber = 0)
     {
-        ThreadHelper.FileAndForget(async () =>
+        Form form = Form.ActiveForm ?? Application.OpenForms.Cast<Form>().First();
+        form.InvokeAndForget(async () =>
         {
+            bool firstAttempt = true;
             while (true)
             {
                 try
                 {
-                    if (await TryOpenFileInRunningInstanceAsync(filePath, lineNumber))
+                    if (TryOpenFileInRunningInstance(filePath, lineNumber))
                     {
                         return;
                     }
@@ -56,14 +63,12 @@ internal static class VisualStudioIntegration
                 catch (COMException exception) when ((uint)exception.HResult == RPC_E_CALL_REJECTED)
                 {
                     Trace.WriteLine(exception);
-                    Form? activeForm = Form.ActiveForm;
-                    await activeForm!.SwitchToMainThreadAsync();
-                    if (!MessageBoxes.ConfirmRetryOpenVisualStudio(activeForm))
+                    if (!firstAttempt && !MessageBoxes.ConfirmRetryOpenVisualStudio(form))
                     {
                         return;
                     }
 
-                    await TaskScheduler.Default;
+                    firstAttempt = false;
                 }
             }
 
@@ -74,7 +79,7 @@ internal static class VisualStudioIntegration
         });
     }
 
-    public static async Task<bool> TryOpenFileInRunningInstanceAsync(string filePath, int lineNumber = 0)
+    private static bool TryOpenFileInRunningInstance(string filePath, int lineNumber = 0)
     {
         if (!File.Exists(filePath))
         {
@@ -82,8 +87,6 @@ internal static class VisualStudioIntegration
             // So, we should not experience this situation in practice (barring some exotic race conditions).
             return false;
         }
-
-        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
         foreach (DTE dte in GetVisualStudioInstances())
         {

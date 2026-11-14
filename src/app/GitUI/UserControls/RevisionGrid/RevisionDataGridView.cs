@@ -17,6 +17,13 @@ namespace GitUI.UserControls.RevisionGrid;
 
 public sealed partial class RevisionDataGridView : DataGridView
 {
+    private enum RedrawMode
+    {
+        NoRedrawNeeded,
+        RedrawOnly,
+        RedrawWithClear,
+    }
+
     private const int BackgroundThreadUpdatePeriod = 25;
     private const int MouseWheelDeltaTimeout = 1500; // Mouse wheel idle time in milliseconds after which unconsumed wheel delta will be dropped.
     private const int RowCountUpdateCoolDown = 300;
@@ -39,6 +46,12 @@ public sealed partial class RevisionDataGridView : DataGridView
     // Set while loading the revisions and data grid, see also ToBeSelectedObjectIds.
     private Lazy<IList<int>> _toBeSelectedGraphIndexesCache;
     private int _loadedToBeSelectedRevisionsCount = 0;
+
+    // Identifies the current data load, incremented by MarkAsDataLoading() and MarkAsDataLoadingCancelled().
+    // A load can be cancelled and superseded by a newer one (e.g. when the repository is switched
+    // while the grid is still loading), so the completion of a load must be ignored unless it is
+    // still the current one - otherwise the grid would be reported as loaded while it is not.
+    private int _dataLoadId;
 
     private int _backgroundScrollTo;
     private long _lastMouseWheelTickCount; // Timestamp of the last vertical scroll via mouse wheel.
@@ -64,7 +77,7 @@ public sealed partial class RevisionDataGridView : DataGridView
     /// <summary>
     /// Force refresh the gridview, set when revision graph is changed while loading revisions.
     /// </summary>
-    private bool _forceRefresh = false;
+    private RedrawMode _redrawMode;
 
     /// <summary>
     /// Indicates whether 'interesting' rows in the data grid is currently being loaded.
@@ -380,7 +393,11 @@ public sealed partial class RevisionDataGridView : DataGridView
     {
         foreach (GitRevision revision in revisions)
         {
-            _forceRefresh |= _revisionGraph.Add(revision);
+            if (_revisionGraph.Add(revision))
+            {
+                _redrawMode = RedrawMode.RedrawWithClear;
+            }
+
             if (ToBeSelectedObjectIds.Contains(revision.ObjectId))
             {
                 ++_loadedToBeSelectedRevisionsCount;
@@ -409,7 +426,10 @@ public sealed partial class RevisionDataGridView : DataGridView
         }
 
         // Insert at matching parent.
-        _forceRefresh |= _revisionGraph.Insert(workTreeRev, indexRev, parents);
+        if (_revisionGraph.Insert(workTreeRev, indexRev, parents))
+        {
+            _redrawMode = RedrawMode.RedrawWithClear;
+        }
 
         if (ToBeSelectedObjectIds.Contains(workTreeRev.ObjectId))
         {
@@ -430,7 +450,7 @@ public sealed partial class RevisionDataGridView : DataGridView
 
         _updateVisibleRowRangeSequence.CancelCurrent();
         _backgroundScrollTo = -1;
-        _forceRefresh = false;
+        _redrawMode = RedrawMode.NoRedrawNeeded;
         _visibleRowRange = new VisibleRowRange(fromIndex: 0, count: 0);
 
         // Set rowcount to 0 first, to ensure it is not possible to select or redraw, since we are about to delete the data
@@ -500,8 +520,22 @@ public sealed partial class RevisionDataGridView : DataGridView
         }
     }
 
-    public void LoadingCompleted()
+    /// <summary>
+    ///  Completes the data load identified by <paramref name="dataLoadId"/>, selecting and scrolling to the
+    ///  revisions which were requested to be selected.
+    /// </summary>
+    /// <param name="dataLoadId">
+    ///  The id returned by the <see cref="MarkAsDataLoading"/> call which started the load.
+    ///  The call is ignored if the load has meanwhile been superseded by a newer one.
+    /// </param>
+    public void LoadingCompleted(int dataLoadId)
     {
+        if (dataLoadId != _dataLoadId)
+        {
+            // This load has been cancelled and superseded by a newer one, which owns the grid now.
+            return;
+        }
+
         if (_loadedToBeSelectedRevisionsCount < ToBeSelectedObjectIds.Count)
         {
             // All expected revisions not found, settle with partial (empty) match
@@ -511,13 +545,18 @@ public sealed partial class RevisionDataGridView : DataGridView
         _revisionGraph.LoadingCompleted();
         if (_revisionGraph.Count == 0)
         {
-            MarkAsDataLoadingComplete();
+            MarkAsDataLoadingComplete(dataLoadId);
             return;
         }
 
         // Rows have not been selected yet
         this.InvokeAndForget(async () =>
         {
+            if (dataLoadId != _dataLoadId)
+            {
+                return;
+            }
+
             SetRowCountAndSelectRowsIfReady();
 
             if (_toBeSelectedGraphIndexesCache.Value.Count == 0)
@@ -545,6 +584,12 @@ public sealed partial class RevisionDataGridView : DataGridView
 
                 // Wait for background thread to load grid rows
                 await Task.Delay(BackgroundThreadUpdatePeriod);
+
+                if (dataLoadId != _dataLoadId)
+                {
+                    // Superseded while waiting, the rows belong to the newer load
+                    return;
+                }
             }
             while (_loadedToBeSelectedRevisionsCount > 0);
 
@@ -561,6 +606,11 @@ public sealed partial class RevisionDataGridView : DataGridView
 
         void LoadingFinishedWithRevisions()
         {
+            if (dataLoadId != _dataLoadId)
+            {
+                return;
+            }
+
             // As fallback, select the first shown real commit or the first row (which exists here)
             if (SelectedRows.Count == 0)
             {
@@ -570,7 +620,7 @@ public sealed partial class RevisionDataGridView : DataGridView
                 EnsureRowVisible(index);
             }
 
-            MarkAsDataLoadingComplete();
+            MarkAsDataLoadingComplete(dataLoadId);
         }
 
         int GetFallbackRowIndexToSelect()
@@ -587,16 +637,46 @@ public sealed partial class RevisionDataGridView : DataGridView
         }
     }
 
-    public void MarkAsDataLoadingComplete()
+    /// <summary>
+    ///  Marks the data load identified by <paramref name="dataLoadId"/> as complete.
+    /// </summary>
+    /// <param name="dataLoadId">
+    ///  The id returned by the <see cref="MarkAsDataLoading"/> call which started the load.
+    ///  The call is ignored if the load has meanwhile been cancelled or superseded by a newer one.
+    /// </param>
+    public void MarkAsDataLoadingComplete(int dataLoadId)
     {
+        if (dataLoadId != _dataLoadId)
+        {
+            // A completion which was still in flight when its load was cancelled must not mark the newer load as complete.
+            return;
+        }
+
         DebugHelpers.Assert(!IsDataLoadComplete, "The grid is already marked as 'data load complete'.");
         IsDataLoadComplete = true;
     }
 
-    public void MarkAsDataLoading()
+    /// <summary>
+    ///  Marks the grid as no longer loading data because the current load, if any, has been cancelled.
+    /// </summary>
+    /// <remarks>
+    ///  A cancelled load never signals its completion, so this has to be done on its behalf.
+    ///  Its id is invalidated, so that a completion which is still in flight is ignored.
+    /// </remarks>
+    public void MarkAsDataLoadingCancelled()
     {
-        DebugHelpers.Assert(IsDataLoadComplete, "The grid is already marked as 'data load in process'.");
+        ++_dataLoadId;
+        IsDataLoadComplete = true;
+    }
+
+    /// <summary>
+    ///  Marks the grid as loading data, superseding any load which may still be in progress.
+    /// </summary>
+    /// <returns>The id identifying this load, to be passed to <see cref="LoadingCompleted"/>.</returns>
+    public int MarkAsDataLoading()
+    {
         IsDataLoadComplete = false;
+        return ++_dataLoadId;
     }
 
     /// <summary>
@@ -742,7 +822,7 @@ public sealed partial class RevisionDataGridView : DataGridView
             return;
         }
 
-        if (_forceRefresh)
+        if (_redrawMode == RedrawMode.RedrawWithClear)
         {
             // Always set _backgroundScrollTo in order to stop the background thread
             _backgroundScrollTo = -1;
@@ -772,12 +852,12 @@ public sealed partial class RevisionDataGridView : DataGridView
         int visibleRowCount = DisplayedRowCount(includePartialRow: true);
         visibleRowCount = Math.Min(_revisionGraph.Count - fromIndex, visibleRowCount);
 
-        if (!_forceRefresh && _visibleRowRange.FromIndex == fromIndex && _visibleRowRange.Count == visibleRowCount)
+        if (_redrawMode == RedrawMode.NoRedrawNeeded && _visibleRowRange.FromIndex == fromIndex && _visibleRowRange.Count == visibleRowCount)
         {
             return;
         }
 
-        _forceRefresh = false;
+        _redrawMode = RedrawMode.NoRedrawNeeded;
         VisibleRowRange visibleRowRange = new(fromIndex, visibleRowCount);
         _visibleRowRange = visibleRowRange;
 
@@ -834,10 +914,25 @@ public sealed partial class RevisionDataGridView : DataGridView
 
     public override void Refresh()
     {
-        _forceRefresh = true;
+        _redrawMode = RedrawMode.RedrawWithClear;
         UpdateVisibleRowRange();
 
         base.Refresh();
+    }
+
+    /// <summary>
+    ///  Schedules a graph re-render without clearing the display cache, keeping the currently
+    ///  cached display visible during re-rendering. Use this for lightweight state changes such
+    ///  as hover highlighting, where the stale cache can be shown while the new render is computed.
+    /// </summary>
+    public void RequestRedrawWithoutClear()
+    {
+        if (_redrawMode < RedrawMode.RedrawOnly)
+        {
+            _redrawMode = RedrawMode.RedrawOnly;
+        }
+
+        _visibleRowRangeUpdater.ScheduleExecution();
     }
 
     private void UpdateRowHeight()
