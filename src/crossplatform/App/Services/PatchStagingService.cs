@@ -16,6 +16,18 @@ public enum PatchStagingAction
 
     /// <summary>Throw the selected work-tree lines away (<c>git checkout -p</c>). Destructive.</summary>
     DiscardWorkTree,
+
+    /// <summary>
+    ///  Bring the selected lines of a COMMITTED diff into the work tree and the index
+    ///  (a per-line cherry-pick: upstream's "Stage selected lines" on a revision).
+    /// </summary>
+    ApplyToWorkTree,
+
+    /// <summary>
+    ///  Undo the selected lines of a COMMITTED diff in the work tree and the index
+    ///  (a per-line revert: upstream's "Reset selected lines" on a revision).
+    /// </summary>
+    RevertInWorkTree,
 }
 
 public sealed record PatchStagingResult(bool Success, string Output);
@@ -234,6 +246,12 @@ public static class PatchStagingService
             return new PatchStagingResult(false, UntrackedOnlyStageMessage);
         }
 
+        if (action is PatchStagingAction.ApplyToWorkTree or PatchStagingAction.RevertInWorkTree)
+        {
+            return ApplyCommitted(repoPath, diffText, selectionStart, selectionLength,
+                revert: action == PatchStagingAction.RevertInWorkTree, isNewFile, isRenamed);
+        }
+
         byte[]? patch;
         try
         {
@@ -305,6 +323,166 @@ public static class PatchStagingService
         catch (Exception ex)
         {
             return new PatchStagingResult(false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    ///  Arguments of the two revision actions, the same upstream's
+    ///  <c>ApplySelectedLines</c> runs. <c>--3way</c> (which implies <c>--index</c>) is
+    ///  what lets a patch cut from an old commit land on a work tree that has moved on
+    ///  since: when the context no longer matches, git merges against the blob named on
+    ///  the <c>index</c> line instead of failing, and leaves conflict markers when even
+    ///  that is not enough.
+    /// </summary>
+    public const string CommittedApplyArguments = "apply --3way --index --whitespace=nowarn";
+
+    /// <summary>
+    ///  Per-line cherry-pick / revert of a committed diff into the work tree and the
+    ///  index. <paramref name="diffText"/> is a single-file patch as git printed it for
+    ///  a commit or a range.
+    /// </summary>
+    private static PatchStagingResult ApplyCommitted(
+        string repoPath,
+        string diffText,
+        int selectionStart,
+        int selectionLength,
+        bool revert,
+        bool isNewFile,
+        bool isRenamed)
+    {
+        byte[]? patch;
+        try
+        {
+            (string text, int start) = RetargetCommittedPatch(diffText, selectionStart, revert, isNewFile, isRenamed);
+            patch = revert
+                ? PatchManager.GetResetWorkTreeLinesAsPatch(text, start, selectionLength, PatchEncoding)
+
+                // Forward, built like a stage (unselected "+" dropped, unselected "-"
+                // kept as context). isNewFile stays false: an added file is CREATED by
+                // the patch, so its "--- /dev/null" header must survive.
+                : PatchManager.GetSelectedLinesAsPatch(
+                    text, start, selectionLength,
+                    isIndex: false, PatchEncoding, reset: false, isNewFile: false, isRenamed: false);
+        }
+        catch (Exception ex)
+        {
+            return new PatchStagingResult(false, ex.Message);
+        }
+
+        if (patch is null || patch.Length == 0)
+        {
+            return new PatchStagingResult(false, NoSelectionMessage);
+        }
+
+        try
+        {
+            GitModule module = GitContext.CreateModule(repoPath);
+            ExecutionResult result = module.GitExecutable.Execute(
+                CommittedApplyArguments,
+                inputWriter => inputWriter.BaseStream.Write(patch),
+                throwOnErrorExit: false);
+
+            string output = (result.AllOutput ?? string.Empty).Trim();
+            return result.ExitedSuccessfully && !output.StartsWith("error:", StringComparison.Ordinal)
+                ? new PatchStagingResult(true, output)
+                : new PatchStagingResult(false, output.Length > 0 ? output : $"git {CommittedApplyArguments} failed");
+        }
+        catch (Exception ex)
+        {
+            return new PatchStagingResult(false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    ///  Rewrites the header of a committed single-file diff so that the patch cut from
+    ///  it targets the file as it is in the WORK TREE, and shifts the selection by
+    ///  however much the header grew or shrank (<see cref="PatchManager"/> takes the
+    ///  header as everything before the first <c>@@</c>, so the body offsets move with
+    ///  it).
+    ///
+    ///  <list type="bullet">
+    ///   <item><description>A rename is retargeted to its new name: the work tree is
+    ///   only patched when the new name is there (the caller's gate), and a
+    ///   <c>rename from</c> header would ask git to move a file that is gone.</description></item>
+    ///   <item><description>A revert of an added (or copied) file patches the existing
+    ///   file, so <c>new file mode</c> goes and <c>--- /dev/null</c> becomes
+    ///   <c>--- a/&lt;name&gt;</c>, which is what upstream's
+    ///   <c>GetSelectedLinesAsNewPatch</c> writes for <c>reset: true</c>.</description></item>
+    ///   <item><description>A revert swaps the blob ids of the <c>index</c> line. The
+    ///   reset patch walks back from the commit's version, so its preimage is the NEW
+    ///   blob, and that is the one <c>--3way</c> must fall back on.</description></item>
+    ///  </list>
+    /// </summary>
+    public static (string Text, int SelectionStart) RetargetCommittedPatch(
+        string diffText, int selectionStart, bool revert, bool isNewFile, bool isRenamed)
+    {
+        int body = diffText.IndexOf("\n@@", StringComparison.Ordinal) + 1;
+        if (body <= 0)
+        {
+            return (diffText, selectionStart);
+        }
+
+        string header = diffText[..body];
+        string[] lines = header.Split('\n');
+        string? plusToken = lines
+            .FirstOrDefault(l => l.StartsWith("+++ ", StringComparison.Ordinal))?[4..]
+            .TrimEnd('\t');
+        if (plusToken is null || plusToken == "/dev/null")
+        {
+            return (diffText, selectionStart);
+        }
+
+        // "b/name", or "\"b/name\"" when git quoted it: the same token, other side.
+        string minusToken = plusToken.StartsWith("\"b/", StringComparison.Ordinal)
+            ? "\"a/" + plusToken[3..]
+            : plusToken.StartsWith("b/", StringComparison.Ordinal) ? "a/" + plusToken[2..] : plusToken;
+
+        bool retargetOld = isRenamed || (revert && isNewFile);
+        List<string> output = [];
+        foreach (string line in lines)
+        {
+            if (isRenamed && (line.StartsWith("similarity index ", StringComparison.Ordinal)
+                || line.StartsWith("rename from ", StringComparison.Ordinal)
+                || line.StartsWith("rename to ", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            if (revert && isNewFile && line.StartsWith("new file mode ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (retargetOld && line.StartsWith("diff --git ", StringComparison.Ordinal))
+            {
+                output.Add($"diff --git {minusToken} {plusToken}");
+            }
+            else if (retargetOld && line.StartsWith("--- ", StringComparison.Ordinal))
+            {
+                output.Add("--- " + minusToken);
+            }
+            else if (revert && line.StartsWith("index ", StringComparison.Ordinal))
+            {
+                output.Add(SwapIndexLine(line));
+            }
+            else
+            {
+                output.Add(line);
+            }
+        }
+
+        string newHeader = string.Join('\n', output);
+        return (newHeader + diffText[body..], selectionStart + newHeader.Length - header.Length);
+
+        static string SwapIndexLine(string line)
+        {
+            // "index <old>..<new>[ <mode>]"
+            string rest = line[6..];
+            int space = rest.IndexOf(' ');
+            string ids = space < 0 ? rest : rest[..space];
+            string mode = space < 0 ? string.Empty : rest[space..];
+            int dots = ids.IndexOf("..", StringComparison.Ordinal);
+            return dots < 0 ? line : $"index {ids[(dots + 2)..]}..{ids[..dots]}{mode}";
         }
     }
 

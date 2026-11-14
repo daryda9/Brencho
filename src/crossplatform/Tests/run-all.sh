@@ -54,6 +54,7 @@ HARNESSES=(
     "graph-lanes|GraphLanesRegression.Harness|120|"
     "asset-names|AssetNamesRegression.Harness|60|$ROOT/App"
     "file-list|FileListRegression.Harness|60|$ROOT/App"
+    "revision-patch|RevisionPatchRegression.Harness|180|"
 )
 
 # Deliberately not run here, with the reason, so their absence reads as a

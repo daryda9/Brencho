@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
@@ -38,13 +39,17 @@ namespace GitExtensions.Avalonia.Views;
 ///  commit against the working tree (<see cref="ShowAgainstWorkingDirectory"/>) and
 ///  the two artificial revision rows (<see cref="ShowArtificial"/>).</para>
 ///
-///  <para><b>Read-only by design.</b> Nothing here writes to the repository: there
-///  is no stage/unstage/reset from the diff, not even for the artificial rows where
-///  upstream offers it, because those commands belong to the staging UI the port
-///  already has (<c>CommitDialog</c>, and <c>Commands ▸ Reset changes…</c>). Menu
-///  entries for what the view cannot do are not created at all, and the commands
-///  that need a real commit object are disabled while an artificial row is shown
-///  (see <c>UpdateFileMenuState</c>).</para>
+///  <para><b>What it writes, and what it leaves to the commit dialog.</b> For a
+///  COMMITTED change (a commit, a range, a multi-revision group) the view offers what
+///  upstream's revision diff does: the selected lines of the patch applied to or
+///  reverted in the work tree and the index, "Cherry pick changes" for a whole file,
+///  and "Reset file(s) to" the selected or the parent revision, each behind the same
+///  services the commit dialog uses (<c>PatchStagingService</c>,
+///  <c>ResetChangesDialog</c>). Stage/unstage/reset of the two ARTIFICIAL rows stays
+///  in the staging UI the port already has (<c>CommitDialog</c>, and <c>Commands ▸
+///  Reset changes…</c>): those entries are not created here, and the commands that
+///  need a real commit object are disabled while an artificial row is shown (see
+///  <c>UpdateFileMenuState</c>).</para>
 /// </summary>
 public sealed class DiffView : UserControl
 {
@@ -135,6 +140,29 @@ public sealed class DiffView : UserControl
     private readonly MenuItem _copyPatchItem;
     private readonly MenuItem _copyNewVersionItem;
     private readonly MenuItem _copyOldVersionItem;
+
+    // Per-line patching of a committed diff (upstream's ApplySelectedLines on a
+    // revision) and its whole-file form in the file list ("Cherry pick changes").
+    private readonly MenuItem _applyLinesItem;
+    private readonly MenuItem _revertLinesItem;
+    private readonly MenuItem _cherryPickFileItem;
+
+    // "Reset file(s) to" ▸ selected (B) / parent (A), upstream's tsmiResetFileTo.
+    private readonly MenuItem _resetFileToItem;
+    private readonly MenuItem _resetToSelectedItem;
+    private readonly MenuItem _resetToParentItem;
+
+    // The row whose patch is on screen, set only when that patch was loaded in a shape
+    // a patch can be cut from (see LoadSelectedFileDiff). Null otherwise, and every
+    // path that empties the pane clears it (ShowPlaceholder).
+    private DiffFileRow? _patchRow;
+
+    // The first parent of the commit on screen in Commit mode, found on the file-list
+    // load's background thread (it is the "A" side of every row without a pair of its
+    // own). Tagged with the commit it belongs to, so a late answer for an earlier
+    // selection is never taken for the current one.
+    private (string Commit, string Parent)? _commitParent;
+
     // The image-comparison offer. The banner is the "evident" half of it: a patch of a
     // PNG is either "Binary files differ" or a screenful of bytes, so when the selected
     // file IS an image the pane says so above the useless text and puts the button that
@@ -285,6 +313,16 @@ public sealed class DiffView : UserControl
         _saveAsItem.Click += (_, _) => SaveSelectedAs();
         _copyPatchItem = new MenuItem();
         _copyPatchItem.Click += (_, _) => CopyDiffText();
+        _cherryPickFileItem = new MenuItem();
+        _cherryPickFileItem.Click += (_, _) => ApplyCommittedLines(revert: false, wholeFile: true);
+        _resetToSelectedItem = new MenuItem();
+        _resetToSelectedItem.Click += (_, _) => Async.Run(() => ResetSelectedFilesAsync(toParent: false), "reset file to selected");
+        _resetToParentItem = new MenuItem();
+        _resetToParentItem.Click += (_, _) => Async.Run(() => ResetSelectedFilesAsync(toParent: true), "reset file to parent");
+        _resetFileToItem = new MenuItem
+        {
+            ItemsSource = new Control[] { _resetToSelectedItem, _resetToParentItem },
+        };
 
         // Items are built in full here; the Opening handler below only flips
         // IsEnabled (mutating Items from Opening leaves the popup mis-measured).
@@ -299,6 +337,9 @@ public sealed class DiffView : UserControl
                 _copyPathItem,
                 _copyPatchItem,
                 _saveAsItem,
+                new Separator(),
+                _resetFileToItem,
+                _cherryPickFileItem,
                 new Separator(),
                 _filterFileInGridItem,
                 _blameItem,
@@ -384,6 +425,14 @@ public sealed class DiffView : UserControl
         // selection does not show two rules with nothing between them.
         Separator searchHistorySeparator = new();
 
+        // Same rule for the two patch entries: they exist only where a patch can be
+        // cut from the text on screen (CanPatchLines), and the rule goes with them.
+        _applyLinesItem = new MenuItem();
+        _applyLinesItem.Click += (_, _) => ApplyCommittedLines(revert: false, wholeFile: false);
+        _revertLinesItem = new MenuItem();
+        _revertLinesItem.Click += (_, _) => ApplyCommittedLines(revert: true, wholeFile: false);
+        Separator patchLinesSeparator = new();
+
         ContextMenu diffMenu = new()
         {
             ItemsSource = new Control[]
@@ -392,6 +441,9 @@ public sealed class DiffView : UserControl
                 _selectAllCopyItem,
                 searchHistorySeparator,
                 _searchHistoryItem,
+                patchLinesSeparator,
+                _applyLinesItem,
+                _revertLinesItem,
                 new Separator(),
                 _copyNewVersionItem,
                 _copyOldVersionItem,
@@ -402,6 +454,11 @@ public sealed class DiffView : UserControl
             bool hasFile = _files.SelectedFile is not null && _repoPath is not null && _commitHash is not null;
             _copyNewVersionItem.IsEnabled = hasFile;
             _copyOldVersionItem.IsEnabled = hasFile;
+
+            bool canPatch = CanPatchLines();
+            _applyLinesItem.IsVisible = canPatch;
+            _revertLinesItem.IsVisible = canPatch;
+            patchLinesSeparator.IsVisible = canPatch;
 
             // Re-worded, not rebuilt: the entry echoes the text it would search, and
             // it is HIDDEN rather than disabled when there is nothing usable to
@@ -942,6 +999,22 @@ public sealed class DiffView : UserControl
         _copyPatchItem.Header = T("FileViewer/copyPatchToolStripMenuItem.Text", "Copy patch");
         _copyNewVersionItem.Header = T("FileViewer/copyNewVersionToolStripMenuItem.Text", "Copy new version");
         _copyOldVersionItem.Header = T("FileViewer/copyOldVersionToolStripMenuItem.Text", "Copy old version");
+
+        // Upstream labels a revision's line patching with the staging captions
+        // ("Stage/Reset selected line(s)"), which promise the index while the patch
+        // actually goes to the work tree AND the index. Port wording, source-text lookup.
+        _applyLinesItem.Header = T("Apply selected line(s) to working directory");
+        _revertLinesItem.Header = T("Revert selected line(s) in working directory");
+        ToolTip.SetTip(_applyLinesItem, "git " + PatchStagingService.CommittedApplyArguments);
+        ToolTip.SetTip(_revertLinesItem, "git " + PatchStagingService.CommittedApplyArguments);
+        // Upstream captions carry WinForms "&" mnemonics; Avalonia would show them literally.
+        _cherryPickFileItem.Header = RevisionFilterDialog.StripMnemonic(T("FileStatusList/tsmiCherryPickChanges.Text", "Cherr&y pick changes"));
+        _resetFileToItem.Header = RevisionFilterDialog.StripMnemonic(T("FileStatusList/tsmiResetFileTo.Text", "&Reset file(s) to"));
+
+        // The two children are re-worded on Opening (they name the revision); this is
+        // what they say before the menu has ever been shown.
+        _resetToSelectedItem.Header = T("FileStatusList/_selectedRevision.Text", "Second: B ");
+        _resetToParentItem.Header = T("FileStatusList/_firstRevision.Text", "First: A ");
 
         ToolTip.SetTip(_prevChangeButton, T("FileViewer/previousChangeButton.ToolTipText", "Previous change"));
         ToolTip.SetTip(_nextChangeButton, T("FileViewer/nextChangeButton.ToolTipText", "Next change"));
@@ -1879,11 +1952,16 @@ public sealed class DiffView : UserControl
             {
                 IReadOnlyList<DiffFileGroup> groups =
                     DiffService.GetCommitFileGroups(repoPath, commitHash, allParents);
-                return groups.Count == 1 && groups[0].Summary.Length == 0
-                    ? [new DiffFileGroup(
-                        DiffWithHeader(repoPath, DiffService.FirstParentOf(repoPath, commitHash)),
-                        groups[0].Rows)]
-                    : groups;
+                if (groups.Count != 1 || groups[0].Summary.Length != 0)
+                {
+                    return groups;
+                }
+
+                // Remembered for "Reset file(s) to ▸ First: A". Posted, so it lands on
+                // the UI thread BEFORE the rows that make the menu reachable.
+                string parent = DiffService.FirstParentOf(repoPath, commitHash);
+                Dispatcher.UIThread.Post(() => _commitParent = (commitHash, parent));
+                return [new DiffFileGroup(DiffWithHeader(repoPath, parent), groups[0].Rows)];
             },
             count => F(ChangedFilesFormat(), commitHash, count),
             F(LoadingFilesFormat(), commitHash),
@@ -2893,10 +2971,272 @@ public sealed class DiffView : UserControl
         _compareHereItem.IsEnabled = hasCommitObject;
         _difftoolItem.IsEnabled = hasCommitObject;
         _compareWorkingDirItem.IsEnabled = hasCommitObject;
+
+        // Upstream shows "Cherry pick changes" for one file whose patch can be applied
+        // (ShouldShowMenuCherryPick + SupportLinePatching).
+        _cherryPickFileItem.IsVisible = _files.SelectedFiles.Count == 1 && CanPatchLines();
+
+        UpdateResetMenuState();
+    }
+
+    // Upstream's InitResetFileToToolStripMenuItem: each child is shown only when its
+    // side is a real commit, labelled with the revision it resets to, and the parent
+    // entry is disabled when neither child applies.
+    private void UpdateResetMenuState()
+    {
+        IReadOnlyList<DiffFileRow> rows = _files.SelectedFiles;
+        string? second = rows.Count > 0 ? ResetPair(rows[0]).Second : null;
+        string? first = rows.Count > 0 ? ResetPair(rows[0]).First : null;
+
+        bool canResetToSecond = !_grepRows.Overlaps(rows) && RevisionResetService.CanResetTo(second);
+        bool canResetToFirst = !_grepRows.Overlaps(rows) && RevisionResetService.CanResetTo(first);
+
+        _resetToSelectedItem.IsVisible = canResetToSecond;
+        _resetToParentItem.IsVisible = canResetToFirst;
+        if (canResetToSecond)
+        {
+            _resetToSelectedItem.Header = ResetCaption(toParent: false, rows);
+        }
+
+        if (canResetToFirst)
+        {
+            _resetToParentItem.Header = ResetCaption(toParent: true, rows);
+        }
+
+        _resetFileToItem.IsEnabled = canResetToSecond || canResetToFirst;
+    }
+
+    // "Second: B 1a2b3c4d" / "First: A <multiple>": upstream's _selectedRevision /
+    // _firstRevision + DescribeRevisions. The short hash is upstream's own fallback
+    // description; the subject would cost a git call on the UI thread.
+    private string ResetCaption(bool toParent, IReadOnlyList<DiffFileRow> rows)
+    {
+        string prefix = toParent
+            ? T("FileStatusList/_firstRevision.Text", "First: A ")
+            : T("FileStatusList/_selectedRevision.Text", "Second: B ");
+        string[] hashes = [.. rows
+            .Select(r => toParent ? ResetPair(r).First : ResetPair(r).Second)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)];
+        string description = hashes.Length switch
+        {
+            1 => Short(hashes[0]),
+            > 1 => T("FileStatusList/_multipleDescription.Text", "<multiple>"),
+            _ => string.Empty,
+        };
+
+        return Theming.MenuText.Escape(prefix + description);
+    }
+
+    /// <summary>
+    ///  The two revisions a row of the LIST compares (not the patch on screen: "Compare
+    ///  file to working directory" changes the patch, never what the list describes).
+    ///  Null sides are not resettable: the artificial rows are left to the commit
+    ///  dialog (see the class remarks), and a root commit has no parent.
+    /// </summary>
+    private (string? First, string? Second) ResetPair(DiffFileRow row)
+    {
+        if (row.SecondRev is { Length: > 0 })
+        {
+            return (row.FirstRev, row.SecondRev);
+        }
+
+        return _mode switch
+        {
+            CompareMode.Commit => (
+                _commitParent is { } p && p.Commit == _commitHash ? p.Parent : null,
+                _commitHash),
+            CompareMode.Range => (_baseHash, _commitHash),
+            CompareMode.WorkingTree => (_commitHash, null),
+            _ => (null, null),
+        };
+    }
+
+    /// <summary>
+    ///  Upstream's <c>ResetSelectedItemsWithConfirmation</c>: one confirmation (with
+    ///  52d08e996's "delete new files" only when something could be deleted), then the
+    ///  core's <c>ResetChanges</c> once per distinct revision among the selected rows.
+    /// </summary>
+    private async Task ResetSelectedFilesAsync(bool toParent)
+    {
+        if (_repoPath is not string repoPath || TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            return;
+        }
+
+        DiffFileRow[] rows = [.. _files.SelectedFiles.Where(r => !_grepRows.Contains(r))];
+        if (rows.Length == 0)
+        {
+            return;
+        }
+
+        List<(string Hash, GitExtensions.Extensibility.Git.GitItemStatus Item)> targets = [];
+        foreach (DiffFileRow row in rows)
+        {
+            (string? first, string? second) = ResetPair(row);
+            string? hash = toParent ? first : second;
+            if (RevisionResetService.CanResetTo(hash))
+            {
+                // Cannot reset to an artificial commit; may be part of a multi-selection.
+                targets.Add((hash!, RevisionResetService.ToItemStatus(row)));
+            }
+        }
+
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        // Every item of a revision diff is committed, so there is always something
+        // existing to reset (upstream's hasExistingFiles is only false for uncommitted
+        // additions and renames in the index, which this list never shows).
+        bool hasNewFiles = RevisionResetService.HasFilesWhichMayBeDeleted(
+            [.. targets.Select(t => t.Item)],
+            new GitCommands.FullPathResolver(() => repoPath));
+        string message = string.Format(
+            T("FileStatusList/_resetSelectedChangesText.Text", "Are you sure you want to reset all selected files to {0}?"),
+            ResetCaption(toParent, rows).Replace("__", "_", StringComparison.Ordinal));
+
+        ResetChangesAction action = await ResetChangesDialog.ShowAsync(owner, hasExistingFiles: true, hasNewFiles, message);
+        if (action == ResetChangesAction.Cancel)
+        {
+            return;
+        }
+
+        bool resetAndDelete = action == ResetChangesAction.ResetAndDelete;
+        _status.Text = T("Resetting…");
+
+        string output = await Task.Run(() =>
+        {
+            List<string> messages = [];
+            foreach (IGrouping<string, (string Hash, GitExtensions.Extensibility.Git.GitItemStatus Item)> group
+                in targets.GroupBy(t => t.Hash, StringComparer.Ordinal))
+            {
+                string result = RevisionResetService.Reset(
+                    repoPath, group.Key, [.. group.Select(t => t.Item)], toParent, resetAndDelete);
+                if (result.Length > 0)
+                {
+                    messages.Add(result);
+                }
+            }
+
+            return string.Join(Environment.NewLine, messages);
+        });
+
+        _status.Text = output.Length == 0
+            ? F(T("Reset {0} file(s)."), targets.Count)
+            : F("{0}: {1}", ErrorWord(), FirstLine(output));
+        if (output.Length > 0)
+        {
+            await ConflictFlow.InfoAsync(owner, output, T("TranslatedStrings/_resetChangesCaption.Text", "Reset changes"));
+        }
+
+        // The commit's own list does not change, but a comparison with the working
+        // tree does; its patch on screen may be stale as well.
+        if (_mode == CompareMode.WorkingTree)
+        {
+            ReloadFileList();
+        }
+        else
+        {
+            LoadSelectedFileDiff();
+        }
+    }
+
+    private static string FirstLine(string text)
+    {
+        int end = text.IndexOf('\n');
+        return (end < 0 ? text : text[..end]).Trim();
+    }
+
+    /// <summary>
+    ///  Upstream's <c>SupportLinePatching</c> for a revision, in the port's terms:
+    ///  the patch on screen is a faithful single-file diff of a committed change (no
+    ///  word diff, UTF-8, not a combined merge diff, not the artificial rows nor a
+    ///  comparison with the working tree), the repository has a work tree, and the file
+    ///  either exists there or is ADDED by the change — new or copied, which is upstream
+    ///  fd1a1b0e7 (<c>IsAdded</c> rather than <c>IsNew</c>). A deletion is not offered:
+    ///  its <c>+++ /dev/null</c> header cannot carry a partial patch.
+    /// </summary>
+    private bool CanPatchLines()
+    {
+        if (_patchRow is not DiffFileRow row || _repoPath is not string repoPath
+            || !ReferenceEquals(_files.SelectedFile, row)
+            || row.Kind == DiffChangeKind.Deleted)
+        {
+            return false;
+        }
+
+        string text = _currentDiffText;
+        if (!text.StartsWith("diff --git ", StringComparison.Ordinal)
+            || text.Contains("\ndiff --git ", StringComparison.Ordinal)
+            || !text.Contains("\n@@ ", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // A bare repository has no ".git" entry under its path: there is nothing to patch.
+        if (!Directory.Exists(Path.Combine(repoPath, ".git")) && !File.Exists(Path.Combine(repoPath, ".git")))
+        {
+            return false;
+        }
+
+        bool isAdded = row.Kind is DiffChangeKind.Added or DiffChangeKind.Copied;
+        return isAdded || File.Exists(Path.Combine(repoPath, row.Name));
+    }
+
+    // The lines the editor selection covers, widened to whole lines (the caret's line
+    // when nothing is selected), as a range of the RAW patch text: the pane renders the
+    // patch verbatim, so document offsets are patch offsets. The end stops before the
+    // last line's newline, as in the commit dialog, or PatchManager would also take the
+    // line after it.
+    private (int Start, int Length) SelectedPatchRange()
+    {
+        TextDocument document = _editor.Document;
+        int start = _editor.SelectionLength > 0 ? _editor.SelectionStart : _editor.CaretOffset;
+        int end = _editor.SelectionLength > 0 ? start + _editor.SelectionLength : start;
+        DocumentLine first = document.GetLineByOffset(Math.Clamp(start, 0, document.TextLength));
+        DocumentLine last = document.GetLineByOffset(Math.Clamp(end, 0, document.TextLength));
+
+        // A drag that ends at the start of a line selected up to the previous one.
+        if (_editor.SelectionLength > 0 && end == last.Offset && last.LineNumber > first.LineNumber)
+        {
+            last = last.PreviousLine;
+        }
+
+        return (first.Offset, last.EndOffset - first.Offset);
+    }
+
+    // Cherry-picks (or reverts) the selected lines — or, for the file list's "Cherry
+    // pick changes", the whole file — of the committed patch on screen into the work
+    // tree and the index, through the same PatchStagingService the commit dialog uses.
+    private void ApplyCommittedLines(bool revert, bool wholeFile)
+    {
+        if (!CanPatchLines() || _patchRow is not DiffFileRow row || _repoPath is not string repoPath)
+        {
+            return;
+        }
+
+        string diffText = _currentDiffText;
+        (int start, int length) = wholeFile ? (0, diffText.Length) : SelectedPatchRange();
+        bool isNew = row.Kind is DiffChangeKind.Added or DiffChangeKind.Copied;
+        bool isRenamed = row.Kind == DiffChangeKind.Renamed;
+        PatchStagingAction action = revert ? PatchStagingAction.RevertInWorkTree : PatchStagingAction.ApplyToWorkTree;
+
+        _status.Text = revert ? T("Reverting selected line(s)…") : T("Applying selected line(s)…");
+        Async.OffUi(
+            () => PatchStagingService.Apply(repoPath, diffText, start, length, action, isNew, isRenamed),
+            result => _status.Text = result.Success
+                ? (revert ? T("Reverted the selected line(s) in the working directory.")
+                          : T("Applied the selected line(s) to the working directory."))
+                : F(T("Patch failed: {0}"), FirstLine(result.Output)),
+            "apply committed lines");
     }
 
     /// <summary>Whether the loaded comparison is one of the two artificial rows.</summary>
     private bool IsArtificialMode => _mode is CompareMode.WorkTree or CompareMode.Index;
+
+    private static bool ArtificialHash(string? hash) => DiffService.ArtificialFromHash(hash) is not null;
 
     // Absolute path of the selected file in the working tree (it may not exist:
     // the file can have been deleted, or belong to an old revision).
@@ -3095,8 +3435,22 @@ public sealed class DiffView : UserControl
 
         // IsTracked only ever matters for the working-directory row, where a brand
         // new file has no other side to be compared against.
+        //
+        // A COPY is asked for under its own path only. The patch is produced without
+        // copy detection, so naming the source as well never showed a "copy from"
+        // header: it only appended the source's own diff when the same commit also
+        // edited it — a second file in the pane, and a text no patch can be cut from.
+        string? oldPath = row.Kind == DiffChangeKind.Copied ? null : row.OldName;
         DiffTextRequest request = new(
-            kind, _repoPath, commitHash, baseHash, row.Name, row.OldName, row.IsTracked);
+            kind, _repoPath, commitHash, baseHash, row.Name, oldPath, row.IsTracked);
+
+        // Whether a patch may be cut from what this load puts on screen (CanPatchLines
+        // checks the text itself on top): a committed change, shown as git printed it.
+        bool patchable = kind is DiffTextKind.Commit or DiffTextKind.Range
+            && !_forceWorkingTreeCompare
+            && !_options.WordDiff
+            && DiffTextService.ResolveEncoding(_options.EncodingName) is UTF8Encoding
+            && !ArtificialHash(commitHash) && !ArtificialHash(baseHash);
 
         // Snapshot the options: they live on the UI thread and the git run does not.
         DiffDisplayOptions options = new()
@@ -3162,6 +3516,7 @@ public sealed class DiffView : UserControl
                     {
                         _patchBusy.Hide();
                         RenderDiff(text);
+                        _patchRow = patchable ? row : null;
 
                         // Show the command that produced the patch, so the effect of
                         // the toolbar toggles (-w, -b, --word-diff, --text) is visible.
@@ -3199,6 +3554,7 @@ public sealed class DiffView : UserControl
         // a repository switch, an error) passes through here, which is why the reset
         // lives in this method and not in each of them.
         ClearImageOffer();
+        _patchRow = null;
         _hunkLines.Clear();
         _hunkIndex = -1;
         _searchMatches.Clear();

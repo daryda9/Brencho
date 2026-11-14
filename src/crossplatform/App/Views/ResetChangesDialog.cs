@@ -55,10 +55,22 @@ public sealed class ResetChangesDialog : Theming.ZoomWindow
     ///  worth saying out loud: staged changes survive.
     /// </param>
     public ResetChangesDialog(int trackedCount, int untrackedCount, bool onlyWorkTree)
+        : this(
+            trackedCount > 0,
+            untrackedCount > 0,
+            T("FormResetChanges/txtMessage.Text", "Are you sure you want to reset your changes?"),
+            Describe(trackedCount, untrackedCount, onlyWorkTree))
     {
-        bool hasExistingFiles = trackedCount > 0;
-        bool hasNewFiles = untrackedCount > 0;
+    }
 
+    /// <summary>
+    ///  Upstream's <c>FormResetChanges.ShowResetDialog(owner, hasExistingFiles,
+    ///  hasNewFiles, confirmationMessage)</c> shape, for a caller that knows what is at
+    ///  stake only as two yes/no answers and a sentence of its own (the revision diff's
+    ///  "Reset file(s) to").
+    /// </summary>
+    private ResetChangesDialog(bool hasExistingFiles, bool hasNewFiles, string messageText, string? scopeText)
+    {
         Title = T("FormResetChanges/$this.Text", "Reset changes");
         Width = 520;
         SizeToContent = SizeToContent.Height;
@@ -68,7 +80,7 @@ public sealed class ResetChangesDialog : Theming.ZoomWindow
 
         TextBlock message = new()
         {
-            Text = T("FormResetChanges/txtMessage.Text", "Are you sure you want to reset your changes?"),
+            Text = messageText,
             Foreground = Brush("App.Text", Brushes.Gainsboro),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 14,
@@ -76,7 +88,8 @@ public sealed class ResetChangesDialog : Theming.ZoomWindow
 
         TextBlock scope = new()
         {
-            Text = Describe(trackedCount, untrackedCount, onlyWorkTree),
+            Text = scopeText ?? string.Empty,
+            IsVisible = scopeText is { Length: > 0 },
             Foreground = Brush("App.TextDim", Brushes.Gray),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0),
@@ -179,6 +192,18 @@ public sealed class ResetChangesDialog : Theming.ZoomWindow
         Window owner, int trackedCount, int untrackedCount, bool onlyWorkTree)
     {
         ResetChangesDialog dialog = new(trackedCount, untrackedCount, onlyWorkTree);
+        await dialog.ShowDialog(owner);
+        return dialog.SelectedAction;
+    }
+
+    /// <summary>
+    ///  As <see cref="ShowAsync(Window, int, int, bool)"/>, with the question and the
+    ///  checkbox state given directly (see the private constructor).
+    /// </summary>
+    public static async Task<ResetChangesAction> ShowAsync(
+        Window owner, bool hasExistingFiles, bool hasNewFiles, string message)
+    {
+        ResetChangesDialog dialog = new(hasExistingFiles, hasNewFiles, message, scopeText: null);
         await dialog.ShowDialog(owner);
         return dialog.SelectedAction;
     }
