@@ -79,6 +79,7 @@ public sealed class RemotesDialog : Theming.ZoomWindow
 
     private bool _busy;
     private bool _suppressRemoteSelection;
+    private string? _selectAfterReload;
 
     /// <summary>
     ///  True when at least one add/rename/set-url/remove/config write succeeded, so the
@@ -534,7 +535,8 @@ public sealed class RemotesDialog : Theming.ZoomWindow
             Dispatcher.UIThread.Post(() =>
             {
                 _busy = false;
-                string? keep = Selected?.Name;
+                string? keep = _selectAfterReload ?? Selected?.Name;
+                _selectAfterReload = null;
 
                 // Re-assigning the ItemsSource fires SelectionChanged with a null
                 // selection first; suppress the detail reload so the user's in-progress
@@ -702,9 +704,78 @@ public sealed class RemotesDialog : Theming.ZoomWindow
             return;
         }
 
-        RunMutation(
-            TranslationService.TFormat(null, "Add remote '{0}'", name),
-            () => _service.AddRemote(_repoPath, name, url));
+        if (_busy)
+        {
+            return;
+        }
+
+        string label = TranslationService.TFormat(null, "Add remote '{0}'", name);
+        _busy = true;
+        RemoteOpResult result;
+        try
+        {
+            result = await Task.Run(() => _service.AddRemote(_repoPath, name, url));
+        }
+        catch (Exception ex)
+        {
+            result = new RemoteOpResult(false, ex.GetBaseException().Message, AuthFailed: false);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        if (!result.Success)
+        {
+            ReloadAll();
+            await ShowErrorAsync(
+                label,
+                string.IsNullOrWhiteSpace(result.Output) ? T("git reported no output.") : result.Output.Trim());
+            return;
+        }
+
+        Changed = true;
+
+        // Upstream (1b5022faa, "fix: remove ConfigureRemotes") no longer asks
+        // "configure the default push and pull behavior?": after saving it simply
+        // fetches the remote (StartPullDialogAndPullImmediately with
+        // GitPullAction.Fetch). Same here — the new remote's branches are needed by
+        // the "Default pull behavior" tab and by the tree as soon as it exists.
+        // Select the new remote, as upstream's Initialize(remote) does.
+        _selectAfterReload = name;
+        ReloadAll();
+        await FetchNewRemoteAsync(name);
+        ReloadAll();
+    }
+
+    /// <summary>
+    ///  Fetches the remote just added, streamed in the process dialog (which keeps
+    ///  git's error text on screen when it fails). Git runs non-interactively; on an
+    ///  authentication failure the credentials are asked in-app and the fetch is
+    ///  retried once, as <c>MainWindow.RunRemoteOp</c> does.
+    /// </summary>
+    private async Task FetchNewRemoteAsync(string remote)
+    {
+        string label = TranslationService.TFormat(null, "Fetch '{0}'", remote);
+        RemoteOpResult? res = null;
+        await GitProcessDialog.RunStreamingAsync(this, label, emit =>
+        {
+            res = _service.FetchStreaming(_repoPath, remote, emit);
+            return new GitProcessOutcome(res.Success, res.Output);
+        }, closeOnAuthFailure: true);
+
+        if (res is { AuthFailed: true })
+        {
+            GitCredentials? creds = await CredentialsDialog.ShowAsync(this);
+            if (creds is not null)
+            {
+                await GitProcessDialog.RunStreamingAsync(this, $"{label} (retry)", emit =>
+                {
+                    RemoteOpResult r = _service.FetchStreaming(_repoPath, remote, emit, creds);
+                    return new GitProcessOutcome(r.Success, r.Output);
+                });
+            }
+        }
     }
 
     private async Task DoRenameAsync()
