@@ -292,12 +292,18 @@ public sealed class RepositoryWatcherService : IDisposable
             // tree (linked worktree, submodule): otherwise the work-tree watcher
             // already reports it and a second one would double every event — the
             // same condition GitStatusMonitor applies.
+            //
+            // Renamed matters as much as Changed here: git never rewrites the index or
+            // a ref in place, it writes "<name>.lock" and renames it over the target
+            // (upstream 023f29416), so a commit or checkout in a linked worktree
+            // arrives only as a rename onto index/HEAD/refs.
             if (gitDir is not null && !IsUnder(gitDir, repo))
             {
                 git = Create(gitDir, NotifyFilters.FileName | NotifyFilters.LastWrite);
                 git.Changed += OnGitDirEvent;
                 git.Created += OnGitDirEvent;
                 git.Deleted += OnGitDirEvent;
+                git.Renamed += OnGitDirEvent;
                 git.Error += OnWatcherError;
                 git.EnableRaisingEvents = true;
 
@@ -311,6 +317,7 @@ public sealed class RepositoryWatcherService : IDisposable
                     common.Changed += OnGitDirEvent;
                     common.Created += OnGitDirEvent;
                     common.Deleted += OnGitDirEvent;
+                    common.Renamed += OnGitDirEvent;
                     common.Error += OnWatcherError;
                     common.EnableRaisingEvents = true;
                 }
@@ -570,7 +577,12 @@ public sealed class RepositoryWatcherService : IDisposable
 
         // The fsmonitor daemon's socket/cookies, and submodule git dirs (each
         // submodule has its own watcher when it is opened as the repository).
-        if (Contains(path, "/fsmonitor--daemon/") || Contains(path, "/modules/"))
+        // Every git command that queries the daemon (git status included, so the
+        // refresh itself) creates and deletes a cookie: reacting to those would make
+        // each refresh schedule the next one (upstream 8cb16b370). The daemon's own
+        // directory entry and its .ipc socket sit directly in the git dir.
+        if (name.StartsWith("fsmonitor--daemon", StringComparison.Ordinal)
+            || Contains(path, "/fsmonitor--daemon/") || Contains(path, "/modules/"))
         {
             return true;
         }
