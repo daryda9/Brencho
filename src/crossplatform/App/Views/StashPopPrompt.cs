@@ -65,7 +65,10 @@ public static class StashPopPrompt
             Margin = new global::Avalonia.Thickness(0, 0, 6, 0),
             IsDefault = true,
         };
-        Button no = new() { Content = TranslationService.T("No"), IsCancel = true };
+        // Not IsCancel: Esc would then click No and, with the box ticked, remember
+        // "Never". Esc closes the window instead (below), which is not an answer —
+        // upstream d41fe0746.
+        Button no = new() { Content = TranslationService.T("No") };
 
         Theming.ZoomWindow dialog = new()
         {
@@ -122,6 +125,7 @@ public static class StashPopPrompt
         content.Children.Add(remember);
         content.Children.Add(buttons);
         dialog.Content = content;
+        DialogKeys.InstallEscapeClose(dialog);
 
         await dialog.ShowDialog(owner);
         return await tcs.Task;

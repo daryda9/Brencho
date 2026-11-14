@@ -72,16 +72,6 @@ public sealed record ToolbarRepoState
     public bool IsBare { get; init; }
 
     /// <summary>
-    ///  Worktrees attached to this repository. Upstream shows the worktrees button
-    ///  only when this is greater than one
-    ///  (<c>FormBrowse.InitMenusAndToolbars.cs</c>, <c>UpdateWorktreeToolStripVisibility</c>).
-    ///  Negative means "not known yet", which keeps the button visible: hiding a
-    ///  working button because nobody has probed yet would be worse than showing one
-    ///  that turns out to be redundant.
-    /// </summary>
-    public int WorktreeCount { get; init; } = -1;
-
-    /// <summary>
     ///  Configured remotes. Upstream hides the drop-down's "Fetch all" entry when
     ///  there is only one (<c>UpdateFetchAllVisibility</c>) — T8. Negative means "not
     ///  known yet" and hides nothing.
@@ -164,7 +154,6 @@ public sealed class ToolbarStateService
                 StashCount = stashes,
                 IsValidWorkingDir = true,
                 IsBare = bare,
-                WorktreeCount = SafeWorktreeCount(module),
                 RemoteCount = SafeRemoteCount(module),
                 HasUpstream = hasUpstream,
                 UpstreamGone = hasUpstream && !RefExists(module, upstream),
@@ -264,19 +253,6 @@ public sealed class ToolbarStateService
         }
         catch
         {
-            return -1;
-        }
-    }
-
-    private static int SafeWorktreeCount(GitModule module)
-    {
-        try
-        {
-            return module.GetWorktrees().Count;
-        }
-        catch
-        {
-            // Unknown rather than 1: a failed probe must not hide a working button.
             return -1;
         }
     }

@@ -816,6 +816,10 @@ public sealed class RepoObjectsTree : UserControl
                 error = ex.Message;
             }
 
+            // Background, not the default priority: building thousands of ref nodes can take
+            // a while, and pending render/input jobs (the revision grid painting first) should
+            // not wait behind it — upstream 893bb8033 waits for Application.Idle for the same
+            // reason. The epoch check below makes the later run order-safe.
             Dispatcher.UIThread.Post(() =>
             {
                 if (epoch != _refreshEpoch)
@@ -874,7 +878,7 @@ public sealed class RepoObjectsTree : UserControl
                         Category(string.Format(CultureInfo.CurrentCulture, "{0}: {1}", T("TranslatedStrings/_error.Text", "Error"), error), null, null, "error"),
                     };
                 }
-            });
+            }, DispatcherPriority.Background);
         });
     }
 
@@ -1920,7 +1924,9 @@ public sealed class RepoObjectsTree : UserControl
         menu.Items.Add(new Separator());
 
         MenuItem delete = MenuItem(T("RepoObjectsTree/mnubtnDeleteWorktree.Text", "Delete worktree…"), "DeleteFile", () => _ = DoRemoveWorktreeAsync(row));
-        delete.IsEnabled = canAct;
+        // Upstream 065da3680: never offer to delete the MAIN worktree — it holds the
+        // repository itself, and git refuses to remove it anyway.
+        delete.IsEnabled = canAct && !row.IsMain;
         ToolTip.SetTip(delete, T("RepoObjectsTree/mnubtnDeleteWorktree.ToolTipText", "Delete this worktree"));
         menu.Items.Add(delete);
 
@@ -2490,7 +2496,7 @@ public sealed class RepoObjectsTree : UserControl
                 return true;
 
             case TreeViewItem { Tag: WorktreeRow worktree }:
-                if (!worktree.IsSamePath(_repoPath) && !worktree.IsPrunable)
+                if (!worktree.IsSamePath(_repoPath) && !worktree.IsPrunable && !worktree.IsMain)
                 {
                     _ = DoRemoveWorktreeAsync(worktree);
                 }

@@ -273,8 +273,8 @@ public sealed class MainToolbar : UserControl
     private TextBlock? _stashCaption;
     private Border? _stashHost;
 
-    // Worktrees split button: hidden entirely while the repository has a single
-    // worktree, exactly as upstream's UpdateWorktreeToolStripVisibility does.
+    // Worktrees split button: always on the strip, disabled outside a valid working
+    // directory (upstream 84bbeb91e).
     private Control? _worktreesHost;
     private Control? _submodulesHost;
     private Image? _submodulesIcon;
@@ -515,8 +515,8 @@ public sealed class MainToolbar : UserControl
 
         // Worktrees is a real split button: the body opens "Manage worktrees" (as
         // upstream's toolStripWorktrees_ButtonClick does) and the drop-down lists the
-        // worktrees plus the create/prune/manage commands. ApplyRepoState() hides the
-        // whole thing while the repository has a single worktree.
+        // worktrees plus the create/prune/manage commands. ApplyRepoState() only
+        // enables/disables it: it is never hidden (upstream 84bbeb91e).
         _worktreesHost = MakeRepoLinkButton("WorkTree", T("TranslatedStrings/_worktreesText.Text", "Worktrees"),
             T("FormBrowse/toolStripWorktrees.ToolTipText", "Worktrees"),
             () => WorktreesProvider, border,
@@ -1065,14 +1065,11 @@ public sealed class MainToolbar : UserControl
 
         if (_worktreesHost is not null)
         {
-            // Upstream: toolStripWorktrees.Visible = worktrees.Count > 1, and false
-            // outright when the directory is not a valid working dir. The button is
-            // removed from / restored to the strip rather than merely hidden, so the
-            // OverflowPanel does not reserve room for an invisible item and the
-            // overflow menu does not list it either.
-            // A negative count means "nobody has probed yet", and the button stays.
-            bool show = _state.IsValidWorkingDir && (_state.WorktreeCount < 0 || _state.WorktreeCount > 1);
-            SetItemPresent(_worktreesHost, show);
+            // Upstream 84bbeb91e: the button is never hidden any more — hiding it with a
+            // single worktree made everything after it (the repository selector) jump
+            // sideways — and is only disabled outside a valid working directory
+            // (toolStripWorktrees.Enabled = validBrowseDir).
+            _worktreesHost.IsEnabled = _state.IsValidWorkingDir;
         }
     }
 
