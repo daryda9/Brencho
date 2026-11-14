@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brencho – Git GUI client for Linux, the Linux port of Git Extensions</title>
+<meta name="description" content="Brencho is a free, open-source graphical Git client for Linux: the Git Extensions port with a new Avalonia UI. Commit graph, multi-repo tabs, built-in diff and three-way merge, interactive rebase. .deb for Ubuntu and Debian, PKGBUILD for Arch.">
+<link rel="canonical" href="https://daryda9.github.io/Brencho/">
+<link rel="icon" type="image/svg+xml" href="brencho.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="alternate" type="text/plain" title="LLM summary" href="llms.txt">
+<meta name="theme-color" content="#101820">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Brencho">
+<meta property="og:title" content="Brencho – Git GUI client for Linux">
+<meta property="og:description" content="The Linux port of Git Extensions: commit graph, multi-repo tabs, built-in diff and three-way merge. Free and open source (GPL v3).">
+<meta property="og:url" content="https://daryda9.github.io/Brencho/">
+<meta property="og:image" content="https://daryda9.github.io/Brencho/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Brencho",
+  "alternateName": "Git Extensions for Linux",
+  "description": "Free, open-source graphical Git client for Linux. A port of Git Extensions with a new Avalonia user interface: commit graph, multi-repository tabs, built-in diff, three-way merge and image comparison, interactive rebase, embedded terminal and command palette.",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "Git client",
+  "operatingSystem": "Linux (Ubuntu, Debian, Arch Linux; x86_64)",
+  "softwareVersion": "5.0.0-linux1",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+  "url": "https://daryda9.github.io/Brencho/",
+  "downloadUrl": "https://github.com/daryda9/Brencho/releases/latest",
+  "codeRepository": "https://github.com/daryda9/Brencho",
+  "screenshot": "https://daryda9.github.io/Brencho/screenshots/main-window.png",
+  "isBasedOn": { "@type": "SoftwareApplication", "name": "Git Extensions", "url": "https://github.com/gitextensions/gitextensions" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Is there a Git Extensions for Linux?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes: Brencho is a Linux port of Git Extensions. It reuses Git Extensions' git logic unchanged and replaces the Windows-only WinForms interface with a new Avalonia UI that runs natively on Linux." } },
+    { "@type": "Question", "name": "Is Brencho free?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Brencho is free and open source under the GPL v3, the same licence as Git Extensions. There is no paid tier, account or telemetry." } },
+    { "@type": "Question", "name": "Do I need .NET installed to run Brencho?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. The .deb package bundles its own .NET runtime; the only dependency is git." } },
+    { "@type": "Question", "name": "Which Linux distributions are supported?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Ubuntu and Debian through the .deb package, Arch Linux through the brencho-bin PKGBUILD, on x86_64. It runs on X11, and on Wayland through XWayland." } },
+    { "@type": "Question", "name": "Is Brencho an alternative to GitKraken, SmartGit or GitHub Desktop on Linux?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Brencho is a free, open-source desktop Git GUI with a commit graph, multi-repository tabs, built-in diff and three-way merge, interactive rebase and an embedded terminal, without accounts or a subscription." } }
+  ]
+}
+</script>
+
+<style>
+:root {
+  --bg: #ffffff;
+  --bg-alt: #f4f6f5;
+  --text: #101820;
+  --text-dim: #4a5560;
+  --border: #dde3e0;
+  --accent: #1da65a;
+  --accent-text: #137a41;
+  --code-bg: #eef1ef;
+  --shadow: 0 1px 2px rgb(16 24 32 / 6%), 0 8px 24px rgb(16 24 32 / 8%);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101820;
+    --bg-alt: #16212b;
+    --text: #e8edf0;
+    --text-dim: #9aa7b1;
+    --border: #26333e;
+    --accent: #1da65a;
+    --accent-text: #4cc985;
+    --code-bg: #1b2833;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 35%);
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Ubuntu, Cantarell, "Noto Sans", sans-serif;
+}
+a { color: var(--accent-text); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+img { max-width: 100%; height: auto; display: block; }
+code, pre { font-family: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 0.9em; }
+code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 0 0 12px; }
+pre code { background: none; padding: 0; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+header.top { border-bottom: 1px solid var(--border); }
+header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; color: var(--text); text-decoration: none; }
+.brand img { width: 30px; height: 30px; }
+nav a { color: var(--text-dim); text-decoration: none; margin-left: 20px; font-size: 15px; }
+nav a:hover { color: var(--text); }
+
+.hero { padding: 64px 0 40px; text-align: center; }
+.hero img.logo { width: 96px; height: 96px; margin: 0 auto 20px; }
+.hero h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.15; margin: 0 0 14px; letter-spacing: -0.02em; }
+.hero p.lead { font-size: clamp(18px, 2.2vw, 21px); color: var(--text-dim); max-width: 720px; margin: 0 auto 28px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn { display: inline-block; padding: 11px 22px; border-radius: 8px; font-weight: 600; text-decoration: none; border: 1px solid var(--border); color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: #18914e; }
+.btn:not(.primary):hover { border-color: var(--text-dim); }
+.meta { color: var(--text-dim); font-size: 14px; margin-top: 14px; }
+
+.shot { margin: 8px auto 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
+
+section { padding: 56px 0; }
+section.alt { background: var(--bg-alt); }
+h2 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.01em; }
+p.sub { color: var(--text-dim); margin: 0 0 32px; }
+
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 28px; }
+.feature figure { margin: 0 0 12px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
+.feature figure img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
+.feature h3 { font-size: 18px; margin: 0 0 4px; }
+.feature p { margin: 0; color: var(--text-dim); font-size: 15.5px; }
+
+.list { columns: 2 300px; column-gap: 40px; padding-left: 20px; margin: 0; }
+.list li { margin-bottom: 8px; break-inside: avoid; }
+
+.install { display: grid; grid-template-columns: 1fr; gap: 28px; max-width: 760px; }
+.install > div { min-width: 0; }
+.install h3 { margin: 0 0 8px; font-size: 18px; }
+p code, li code { overflow-wrap: anywhere; }
+.install p { margin: 0 0 10px; color: var(--text-dim); font-size: 15.5px; }
+
+.faq details { border-bottom: 1px solid var(--border); padding: 14px 0; }
+.faq summary { cursor: pointer; font-weight: 600; font-size: 17px; }
+.faq details p { margin: 10px 0 0; color: var(--text-dim); }
+
+footer { border-top: 1px solid var(--border); padding: 28px 0 40px; color: var(--text-dim); font-size: 14px; }
+footer p { margin: 0 0 6px; }
+
+@media (max-width: 600px) {
+  nav a:not(.gh) { display: none; }
+  .hero { padding-top: 40px; }
+  section { padding: 40px 0; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="brencho.svg" alt="" width="30" height="30">Brencho</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+      <a class="gh" href="https://github.com/daryda9/Brencho">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="hero">
+  <div class="wrap">
+    <img class="logo" src="brencho.svg" alt="Brencho logo" width="96" height="96">
+    <h1>A graphical Git client for Linux</h1>
+    <p class="lead">Brencho is the Linux port of <a href="https://github.com/gitextensions/gitextensions">Git Extensions</a>: the same git logic, with a new native interface. Commit graph, several repositories in one window, built-in diff and three-way merge.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/daryda9/Brencho/releases/latest">Download for Linux</a>
+      <a class="btn" href="https://github.com/daryda9/Brencho">Source on GitHub</a>
+    </div>
+    <p class="meta">Version 5.0.0-linux1 · Free and open source (GPL v3) · Ubuntu, Debian, Arch · x86_64</p>
+  </div>
+  <div class="wrap">
+    <figure class="shot">
+      <img src="screenshots/main-window.png" width="1640" height="970" alt="Brencho main window: repository tabs, the revision graph, the file list and the diff pane">
+    </figure>
+  </div>
+</div>
+
+<section id="features" class="alt">
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">Everything Git Extensions users know (the revision grid, the commit dialog, the toolbar), rebuilt for the Linux desktop, plus a few things the original never had.</p>
+    <div class="features">
+      <div class="feature">
+        <figure><img src="screenshots/repository-tabs.png" loading="lazy" width="1640" height="970" alt="Several repositories open as tabs in one window"></figure>
+        <h3>Several repositories in one window</h3>
+        <p>A tab strip with previews and pinning. Submodules and worktrees open one click away.</p>
+      </div>
+      <div class="feature">
+        <figure><img src="screenshots/merge-editor.png" loading="lazy" width="1240" height="820" alt="Three-way merge editor with local, base and remote panes above the result"></figure>
+        <h3>Built-in three-way merge</h3>
+        <p>Local, base and remote above, the editable result below. No external merge tool to configure.</p>
+      </div>
+      <div class="feature">
+        <figure><img src="screenshots/side-by-side-diff.png" loading="lazy" width="1180" height="760" alt="Side-by-side diff with per-character highlighting"></figure>
+        <h3>Diff and image comparison</h3>
+        <p>Unified or side-by-side diffs with per-character highlights, and an image diff for binary files.</p>
+      </div>
+      <div class="feature">
+        <figure><img src="screenshots/rebase-todo.png" loading="lazy" width="1000" height="700" alt="Interactive rebase shown as a list of steps"></figure>
+        <h3>Interactive rebase as steps</h3>
+        <p>Reorder, squash and edit commits in a list, with a bar that shows where a stopped rebase, merge or cherry-pick is.</p>
+      </div>
+      <div class="feature">
+        <figure><img src="screenshots/command-palette.png" loading="lazy" width="640" height="422" alt="Command palette listing menu commands"></figure>
+        <h3>Command palette</h3>
+        <p><code>Ctrl+Shift+P</code> searches every command in the menu, with its shortcut.</p>
+      </div>
+      <div class="feature">
+        <figure><img src="screenshots/appearance-settings.png" loading="lazy" width="1100" height="760" alt="Appearance settings: theme, style, UI size, title bar"></figure>
+        <h3>Follows your desktop</h3>
+        <p>Light, dark or system theme, live UI zoom, and an embedded terminal with nothing extra to install.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>And also</h2>
+    <p class="sub">The everyday Git operations, without leaving the window.</p>
+    <ul class="list">
+      <li>Commit graph with branch, tag, remote and stash labels; hover a branch to highlight its history</li>
+      <li>Commit dialog with staging by file, hunk or line, amend and fixup commits</li>
+      <li>Apply or revert selected lines from any commit's diff; reset files to a chosen revision</li>
+      <li>Branches, tags, remotes, stashes, submodules and worktrees in a side tree</li>
+      <li>Fetch, pull, push, cherry-pick, revert, bisect, blame and file history</li>
+      <li>Conflict resolution that says what kind of conflict it is, with rerere support</li>
+      <li>Settings stored as plain files that survive a crash</li>
+      <li>Translations from the Git Extensions catalogues</li>
+    </ul>
+  </div>
+</section>
+
+<section id="install" class="alt">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">The package bundles its own .NET runtime. The only thing it needs on your machine is <code>git</code>.</p>
+    <div class="install">
+      <div>
+        <h3>Ubuntu, Debian</h3>
+        <p>Download <code>brencho_5.0.0-linux1_amd64.deb</code> from the <a href="https://github.com/daryda9/Brencho/releases/latest">latest release</a>, then:</p>
+<pre><code>sudo apt install ./brencho_5.0.0-linux1_amd64.deb
+brencho /path/to/a/git/repo</code></pre>
+      </div>
+      <div>
+        <h3>Arch Linux</h3>
+        <p>Build the <code>brencho-bin</code> package from the PKGBUILD in the repository:</p>
+<pre><code>git clone https://github.com/daryda9/Brencho
+cd Brencho/packaging/aur
+makepkg -si</code></pre>
+      </div>
+      <div>
+        <h3>From source</h3>
+        <p>With the .NET 10 SDK, from the repository root:</p>
+<pre><code>dotnet build App/GitExtensions.Avalonia.csproj
+./run.sh /path/to/a/git/repo</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="faq">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <details open>
+      <summary>Is there a Git Extensions for Linux?</summary>
+      <p>Yes, this is it. Git Extensions' interface is WinForms, which only runs on Windows. Brencho reuses Git Extensions' git logic unchanged and replaces the interface with a new <a href="https://avaloniaui.net/">Avalonia</a> UI that runs natively on Linux. If you used Git Extensions on Windows, the layout will feel familiar.</p>
+    </details>
+    <details>
+      <summary>Is it free?</summary>
+      <p>Yes. Brencho is free and open source under the GPL v3, the same licence as Git Extensions. There is no paid tier, no account and no telemetry.</p>
+    </details>
+    <details>
+      <summary>Do I need .NET installed?</summary>
+      <p>No. The .deb ships its own .NET runtime in <code>/opt/brencho</code>. You only need <code>git</code>.</p>
+    </details>
+    <details>
+      <summary>Which distributions and desktops does it run on?</summary>
+      <p>Ubuntu and Debian through the .deb, Arch Linux through the PKGBUILD, on x86_64. It is tested on X11; on Wayland it runs through XWayland.</p>
+    </details>
+    <details>
+      <summary>How does it compare with GitKraken, SmartGit or GitHub Desktop?</summary>
+      <p>It covers the same daily work (graph, staging, diff, merge, rebase, multiple repositories) as a free, open-source desktop app, without accounts or a subscription. It works with any Git host, not only GitHub.</p>
+    </details>
+    <details>
+      <summary>Why the name Brencho?</summary>
+      <p>The Git trademark policy does not allow "Git" inside the name of another product, so the port needed a name of its own. It was called gitNext until November 2026.</p>
+    </details>
+    <details>
+      <summary>What is missing compared with Git Extensions on Windows?</summary>
+      <p>Plugins are limited to the built-in ones, and the Windows shell and Visual Studio integrations are not ported. The <a href="https://github.com/daryda9/Brencho/blob/linux-avalonia-port/ROADMAP.md">roadmap</a> lists every known gap.</p>
+    </details>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Brencho is free software under the <a href="https://github.com/daryda9/Brencho/blob/linux-avalonia-port/LICENSE.md">GPL v3</a>, derived from <a href="https://github.com/gitextensions/gitextensions">Git Extensions</a> and its contributors.</p>
+    <p><a href="https://github.com/daryda9/Brencho">Source</a> · <a href="https://github.com/daryda9/Brencho/releases">Releases</a> · <a href="https://github.com/daryda9/Brencho/issues">Report an issue</a> · <a href="llms.txt">llms.txt</a></p>
+    <p>Git and the Git logo are trademarks of Software Freedom Conservancy. Brencho is not affiliated with or endorsed by the Git project or by Git Extensions.</p>
+  </div>
+</footer>
+
+</body>
+</html>

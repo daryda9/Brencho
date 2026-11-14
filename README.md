@@ -5,7 +5,8 @@
 <h1 align="center">Brencho</h1>
 
 <p align="center"><b>A graphical Git client for Linux, based on Git Extensions.</b><br>
-Commit graph, multi-repo tabs, built-in diff and three-way merge, interactive rebase.</p>
+Commit graph, multi-repo tabs, built-in diff and three-way merge, interactive rebase.<br>
+<a href="https://daryda9.github.io/Brencho/">Website</a> · <a href="https://github.com/daryda9/Brencho/releases/latest">Download</a></p>
 
 Brencho is a port of [Git Extensions](https://github.com/gitextensions/gitextensions),
 the Windows Git GUI, to Linux. If you used Git Extensions on Windows and want the
@@ -45,7 +46,13 @@ The package bundles its own .NET runtime; the only dependency is `git`.
 
 ## Arch Linux
 
-A `brencho-bin` PKGBUILD is in [`packaging/aur/`](/packaging/aur/).
+A `brencho-bin` PKGBUILD is in [`packaging/aur/`](/packaging/aur/). Until it is on the AUR:
+
+```bash
+git clone https://github.com/daryda9/Brencho
+cd Brencho/packaging/aur
+makepkg -si
+```
 
 ## Build from source (Linux)
 
