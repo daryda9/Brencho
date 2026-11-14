@@ -19,7 +19,7 @@ conflicts=('brencho')
 options=('!strip' '!debug')
 source=("https://github.com/daryda9/Brencho/releases/download/v${_debver}/brencho_${_debver}_amd64.deb")
 # Must be the hash of the file attached to the release: run `updpkgsums` after uploading.
-sha256sums=('ef3bb889781e17018e8b6cd3fd19ee62677453da0988163e86e3b523b6ad515f')
+sha256sums=('3c3fc3d763e8b1c305ed946db2b8dbab5f3bee31d467a970927b26db28dd6d84')
 
 package() {
     bsdtar -xf data.tar.zst -C "$pkgdir"

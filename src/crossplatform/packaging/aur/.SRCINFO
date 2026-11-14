@@ -20,6 +20,6 @@ pkgbase = brencho-bin
 	options = !strip
 	options = !debug
 	source = https://github.com/daryda9/Brencho/releases/download/v5.0.0-linux1/brencho_5.0.0-linux1_amd64.deb
-	sha256sums = ef3bb889781e17018e8b6cd3fd19ee62677453da0988163e86e3b523b6ad515f
+	sha256sums = 3c3fc3d763e8b1c305ed946db2b8dbab5f3bee31d467a970927b26db28dd6d84
 
 pkgname = brencho-bin
