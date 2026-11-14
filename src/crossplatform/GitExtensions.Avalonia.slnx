@@ -25,6 +25,7 @@
     <Project Path="Tests/FileListRegression/FileListRegression.Harness.csproj" />
     <Project Path="Tests/InlineDiffRegression/InlineDiffRegression.Harness.csproj" />
     <Project Path="Tests/MergeResolveRegression/MergeResolveRegression.Harness.csproj" />
+    <Project Path="Tests/GraphLanesRegression/GraphLanesRegression.Harness.csproj" />
     <Project Path="Tests/NavigationSnapshot/NavigationSnapshot.Harness.csproj" />
     <Project Path="Tests/Perf/Perf.Harness.csproj" />
     <Project Path="Tests/SettingsStoresRegression/SettingsStoresRegression.Harness.csproj" />

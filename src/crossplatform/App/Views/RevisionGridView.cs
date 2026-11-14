@@ -495,10 +495,12 @@ public sealed class RevisionGridView : UserControl
 
     // Per display row (index into _rows), the "is relative" flags the graph cell
     // needs: the node's own flag plus one flag per segment, in the exact order the
-    // segment list comes out of the DAG layout (RevisionService.BuildGraph). Recomputed
+    // segment list comes out of the DAG layout (RevisionService.BuildGraph). Restarted
     // by ComputeGraphRelatives() on every rebind, since the flag of a segment
-    // depends on the row that opened its lane (see that method).
-    private List<(bool Node, bool[] Segments)> _graphRelatives = [];
+    // depends on the row that opened its lane (see that method), and computed lazily
+    // down to the rows actually built — a rebind no longer pays for the whole loaded
+    // history when only one screen of it is realized.
+    private GraphRelativesPass? _graphRelatives;
 
     // Palette pulled from the shared app resources (see App.cs).
     private static IBrush B(string key) => (IBrush)Application.Current!.Resources[key]!;
@@ -2631,7 +2633,10 @@ public sealed class RevisionGridView : UserControl
 
         // The graph's relative/non-relative flags are per DISPLAY ROW, so they are
         // refreshed here — the single place every rebind goes through, whether the
-        // rows, the filter, the anchor or a highlight toggle changed.
+        // rows, the filter, the anchor or a highlight toggle changed. A lane hover is
+        // keyed by display row too and is dropped (upstream clears it with the graph
+        // cache): the label under the pointer is rebuilt and re-arms it on the next move.
+        ClearLaneHover();
         ComputeGraphRelatives();
 
         List<string> selected = _list.SelectedItems is { Count: > 0 } items
@@ -3040,69 +3045,14 @@ public sealed class RevisionGridView : UserControl
     // that runs from them down to HEAD.
     private void ComputeGraphRelatives()
     {
-        _graphRelatives = new List<(bool, bool[])>(_rows.Count);
-
-        // Which EDGES crossing the top edge of the current row are relative, keyed by
-        // ColorLane.
-        //
-        // Keyed by edge identity and not by lane index, which is what this used to do
-        // and what made it wrong: a lane is only a column and BuildGraph recycles it —
-        // it frees the column when two branches converge and FirstFree hands the same
-        // column to an unrelated branch further down. The flag of the branch that left
-        // was then read by the branch that arrived, so an unrelated line kept the
-        // colour of an ancestor of HEAD. ColorLane already exists for exactly this
-        // reason (M75 gave the graph an edge identity so colours would stop following
-        // recycled columns); the relatives pass simply had not been moved onto it.
-        HashSet<int> incoming = [];
-
-        for (int i = 0; i < _rows.Count; i++)
-        {
-            RevisionRow row = _rows[i];
-            bool artificial = IsArtificial(row);
-            bool nodeRelative = artificial
-                || _headRelatives.Count == 0
-                || _headRelatives.Contains(row.Hash);
-            int nodeLane = row.NodeLane;
-            IReadOnlyList<RevisionGraphSegment> segments = row.GraphSegments;
-
-            bool[] flags = new bool[segments.Count];
-            HashSet<int> outgoing = [];
-
-            for (int s = 0; s < segments.Count; s++)
-            {
-                RevisionGraphSegment seg = segments[s];
-
-                // An edge that LEAVES this node — its lower half starts at the node
-                // lane — is relative because the node is; anything else inherits the
-                // flag its own edge arrived with.
-                bool leavesNode = seg.FromY >= 0.5 && (int)Math.Round(seg.FromLane) == nodeLane;
-                bool relative = leavesNode
-                    ? nodeRelative || incoming.Contains(seg.ColorLane)
-                    : incoming.Contains(seg.ColorLane);
-
-                flags[s] = relative;
-
-                // Whatever reaches the bottom edge is what the next row inherits —
-                // full-height segments included, which is why this asks about ToY
-                // rather than about the half the segment lives in.
-                if (relative && seg.ToY >= 1.0)
-                {
-                    outgoing.Add(seg.ColorLane);
-                }
-            }
-
-            _graphRelatives.Add((nodeRelative, flags));
-            incoming = outgoing;
-        }
+        _graphRelatives = GraphRelativesPass.ForSet(_rows, _headRelatives, IsArtificial);
     }
 
     // The graph flags of one display row, or null when they are unavailable (row
     // index out of the computed range, e.g. a rebind still in flight): the caller
     // then draws everything in colour, never throwing from a render path.
     private (bool Node, bool[] Segments)? GraphRelatives(int displayIndex)
-        => displayIndex >= 0 && displayIndex < _graphRelatives.Count
-            ? _graphRelatives[displayIndex]
-            : null;
+        => _graphRelatives?.At(displayIndex);
 
     // Re-anchors the highlighting on the given commit (ALT+CLICK) and redraws. A
     // hash equal to the current anchor is a no-op, so repeated Alt+clicks on the
@@ -3117,6 +3067,178 @@ public sealed class RevisionGridView : UserControl
         _highlightAnchor = hash;
         ComputeReachability();
         RefreshView();
+    }
+
+    // ── Lane highlight on ref-label hover (upstream 40e2457de) ─────────────────────
+    //
+    // Resting the pointer on a branch/tag label grays every lane that is not an
+    // ancestor of that label's commit; a local branch and the remote-tracking branch
+    // it tracks count as one group, so both histories stay coloured. Upstream:
+    // RevisionGridControl.UpdateLaneHighlight -> HoverHighlightCalculator (100 ms
+    // debounce, cancel on the next move) -> GraphRenderer with hoverHighlightedIds,
+    // which wins over the normal draw style while it is active. Only the graph is
+    // affected; the text keeps the normal graying.
+    //
+    // The graph cells are repainted in place (RevisionGraphControl.SetRelatives), never
+    // re-templated: a rebind would rebuild the very label under the pointer, and the
+    // fresh control's PointerExited/PointerEntered pair would re-trigger the hover.
+
+    // Upstream's HoverHighlightCalculator._debounceMs.
+    private const int LaneHoverDebounceMs = 100;
+
+    // The pass for the hovered label, or null when no label is hovered. Lazy: it is
+    // only run as far as the rows that get painted (see GraphRelativesPass).
+    private GraphRelativesPass? _laneHover;
+
+    // The rows the active pass started from (label commit + its group partners),
+    // to skip the repaint when the pointer moves to another label of the same group.
+    private HashSet<int>? _laneHoverSeeds;
+
+    private CancellationTokenSource? _laneHoverCts;
+
+    // The flags a graph cell is drawn with: the hover's while a label is hovered
+    // (it takes priority, as upstream's isHoverHighlighted does), otherwise the
+    // "draw non-relatives gray" ones, otherwise none (everything in colour).
+    private (bool Node, bool[] Segments)? GraphFlags(int index)
+        => _laneHover is { } hover ? hover.At(index)
+            : _drawNonRelativesGray ? GraphRelatives(index)
+            : null;
+
+    private void TrackLaneHover(Control label, string hash, string refName, char kind)
+    {
+        label.PointerEntered += (_, _) => ScheduleLaneHover(hash, refName, kind);
+        label.PointerExited += (_, _) => ScheduleLaneHover(null, null, '\0');
+    }
+
+    // Debounced like upstream's SetAsync: every call cancels the pending one, so
+    // sweeping the pointer across a row of labels computes only where it stops.
+    private void ScheduleLaneHover(string? hash, string? refName, char kind)
+    {
+        _laneHoverCts?.Cancel();
+        CancellationTokenSource cts = new();
+        _laneHoverCts = cts;
+
+        Async.Run(
+            async () =>
+            {
+                await Task.Delay(LaneHoverDebounceMs, cts.Token);
+                if (!cts.IsCancellationRequested)
+                {
+                    ApplyLaneHover(hash is null || refName is null ? null : LaneHoverSeeds(hash, refName, kind));
+                }
+            },
+            "lane hover");
+    }
+
+    // Forgets the hover without repainting: the caller is about to rebuild the rows.
+    private void ClearLaneHover()
+    {
+        _laneHoverCts?.Cancel();
+        _laneHoverCts = null;
+        _laneHover = null;
+        _laneHoverSeeds = null;
+    }
+
+    // The ROWS the hover starts from: the label's commit plus, for a local branch with
+    // an upstream or for a remote-tracking branch, the commits of the other members of
+    // its group that are loaded. Null when the label's row is gone or the graph is not
+    // shown.
+    private HashSet<int>? LaneHoverSeeds(string hash, string refName, char kind)
+    {
+        if (!_showGraph || _quickFilterActive)
+        {
+            return null;
+        }
+
+        RevisionParentIndex index = ParentIndex();
+        int labelRow = index.RowOf(hash);
+        if (labelRow < 0)
+        {
+            return null;
+        }
+
+        HashSet<int> seeds = [labelRow];
+
+        HashSet<string> partners = new(StringComparer.Ordinal);
+        if (kind == 'b' && _upstreamOf.TryGetValue(refName, out string? upstream))
+        {
+            partners.Add(upstream);
+        }
+        else if (kind == 'r')
+        {
+            foreach ((string local, string tracked) in _upstreamOf)
+            {
+                if (string.Equals(tracked, refName, StringComparison.Ordinal))
+                {
+                    partners.Add(local);
+                }
+            }
+        }
+
+        // Partner labels on the label's own row add nothing; the loop stops as soon as
+        // every partner has been met, so a branch sitting on its upstream costs nothing.
+        partners.ExceptWith(_rows[labelRow].RefNames);
+        for (int i = 0; i < _rows.Count && partners.Count > 0; i++)
+        {
+            IReadOnlyList<string> names = _rows[i].RefNames;
+            for (int n = 0; n < names.Count; n++)
+            {
+                if (partners.Remove(names[n]))
+                {
+                    seeds.Add(i);
+                }
+            }
+        }
+
+        return seeds;
+    }
+
+    private void ApplyLaneHover(HashSet<int>? seeds)
+    {
+        if (seeds is null ? _laneHoverSeeds is null : _laneHoverSeeds?.SetEquals(seeds) == true)
+        {
+            return;
+        }
+
+        _laneHoverSeeds = seeds;
+        _laneHover = seeds is null ? null : GraphRelativesPass.ForAncestorsOf(_rows, ParentIndex(), seeds, IsArtificial);
+        RepaintGraphCells();
+    }
+
+    // _rows with parents resolved to row indices, for the ancestor walk. Built once per
+    // row set (every change of the rows assigns a new list, never mutates it) instead
+    // of once per hover, and only when a label is hovered at all.
+    private IReadOnlyList<RevisionRow>? _parentIndexSource;
+    private RevisionParentIndex? _parentIndex;
+
+    private RevisionParentIndex ParentIndex()
+    {
+        if (_parentIndex is null || !ReferenceEquals(_parentIndexSource, _rows))
+        {
+            _parentIndex = new RevisionParentIndex(_rows);
+            _parentIndexSource = _rows;
+        }
+
+        return _parentIndex;
+    }
+
+    // Re-applies GraphFlags to every realized graph cell. Only the rows on screen
+    // exist; the ones realized later are built with the current flags anyway.
+    private void RepaintGraphCells()
+    {
+        foreach (Control container in _list.GetRealizedContainers())
+        {
+            foreach (RevisionGraphControl graph in container.GetVisualDescendants().OfType<RevisionGraphControl>())
+            {
+                if (graph.DisplayIndex < 0)
+                {
+                    continue;
+                }
+
+                (bool Node, bool[] Segments)? flags = GraphFlags(graph.DisplayIndex);
+                graph.SetRelatives(flags?.Segments, flags?.Node ?? true);
+            }
+        }
     }
 
     // Re-evaluates the author emphasis from the current selection (upstream's
@@ -5919,10 +6041,10 @@ public sealed class RevisionGridView : UserControl
         // to avoid rendering a garbled DAG. It returns in full once the filter clears.
         if (_showGraph && !_quickFilterActive)
         {
-            (bool Node, bool[] Segments)? flags = _drawNonRelativesGray
-                ? GraphRelatives(index)
-                : null;
+            (bool Node, bool[] Segments)? flags = GraphFlags(index);
 
+            // The gray brush is handed over even when nothing is gray yet: a hovered
+            // label can gray lanes later without rebuilding the row (SetRelatives).
             RevisionGraphControl graph = new(
                 row.GraphSegments,
                 row.NodeLane,
@@ -5930,9 +6052,10 @@ public sealed class RevisionGridView : UserControl
                 nodeColor: row.NodeColor,
                 relativeSegments: flags?.Segments,
                 relativeNode: flags?.Node ?? true,
-                nonRelativeBrush: flags is null ? null : B("App.TextDim"),
+                nonRelativeBrush: B("App.TextDim"),
                 squareNode: row.RefNames.Count > 0,
-                headNode: row.IsHead);
+                headNode: row.IsHead,
+                displayIndex: index);
             Grid.SetColumn(graph, 0);
             grid.Children.Add(graph);
             view.TrackGraph(graph);
@@ -6050,7 +6173,9 @@ public sealed class RevisionGridView : UserControl
                 && kind == 'b'
                 && _currentBranch.Length > 0
                 && string.Equals(refName, _currentBranch, StringComparison.Ordinal);
-            Badge(BuildRefBadge(refName, isCurrent, view, kind, RemoteShownAsIcon(refName, kind)));
+            Control badge = BuildRefBadge(refName, isCurrent, view, kind, RemoteShownAsIcon(refName, kind));
+            TrackLaneHover(badge, row.Hash, refName, kind);
+            Badge(badge);
         }
 
         TextBlock subjectText = new()
@@ -6090,9 +6215,7 @@ public sealed class RevisionGridView : UserControl
             // Same treatment as a commit row: the artificial nodes are ordinary graph
             // rows now, so they can carry other branches' lanes through and those must
             // gray out with everything else.
-            (bool Node, bool[] Segments)? flags = _drawNonRelativesGray
-                ? GraphRelatives(index)
-                : null;
+            (bool Node, bool[] Segments)? flags = GraphFlags(index);
 
             RevisionGraphControl graph = new(
                 row.GraphSegments,
@@ -6102,7 +6225,8 @@ public sealed class RevisionGridView : UserControl
                 nodeColor: row.NodeColor,
                 relativeSegments: flags?.Segments,
                 relativeNode: flags?.Node ?? true,
-                nonRelativeBrush: flags is null ? null : B("App.TextDim"));
+                nonRelativeBrush: B("App.TextDim"),
+                displayIndex: index);
             Grid.SetColumn(graph, 0);
             grid.Children.Add(graph);
             view.TrackGraph(graph);
@@ -6485,6 +6609,12 @@ public sealed class RevisionGridView : UserControl
     // there is a single remote.
     private Dictionary<string, string> _remoteOfRef = new(StringComparer.Ordinal);
     private string? _iconRemote;
+
+    // Local branch -> the remote-tracking branch it tracks (main -> origin/main), from
+    // branch.<name>.remote/merge as the core reads them (GitRef.TrackingRemote and
+    // MergeWith). Used to treat a local branch and its tracking remote as ONE group
+    // when a label is hovered, as upstream's HoverHighlightCalculator does.
+    private Dictionary<string, string> _upstreamOf = new(StringComparer.Ordinal);
 
     /// <summary>
     ///  Raised by the menu's "Select in left panel" entry with the ref name to
@@ -7651,6 +7781,7 @@ public sealed class RevisionGridView : UserControl
 
                 Dictionary<string, char> kinds = new(StringComparer.Ordinal);
                 Dictionary<string, string> remoteOfRef = new(StringComparer.Ordinal);
+                Dictionary<string, string> upstreamOf = new(StringComparer.Ordinal);
                 HashSet<string> remotes = new(StringComparer.Ordinal);
                 List<(string Name, char Kind)> catalogue = [];
                 foreach (BranchTagRow branch in listing.Branches)
@@ -7663,6 +7794,11 @@ public sealed class RevisionGridView : UserControl
                     {
                         remoteOfRef[branch.Name] = branch.Remote;
                         remotes.Add(branch.Remote);
+                    }
+
+                    if (!branch.IsRemote && branch.Upstream.Length > 0)
+                    {
+                        upstreamOf[branch.Name] = branch.Upstream;
                     }
                 }
 
@@ -7690,6 +7826,7 @@ public sealed class RevisionGridView : UserControl
                     _currentBranch = current;
                     _refKinds = kinds;
                     _remoteOfRef = remoteOfRef;
+                    _upstreamOf = upstreamOf;
                     _iconRemote = iconRemote;
 
                     // The same listing feeds the "Filtered branches" ref picker, so
@@ -8215,12 +8352,18 @@ public sealed class RevisionGridView : UserControl
         private readonly bool _squareNode;
         private readonly bool _headNode;
 
-        // Non-null only while "draw non-relatives gray" is on: the flag of each
-        // segment (parallel to _segments), the node's own flag, and the gray brush
-        // to use for the ones that are false — the port's counterpart of upstream
-        // GraphRenderer.GetBrushForLaneInfo(…, isRelative, DrawNonRelativesGray).
-        private readonly IReadOnlyList<bool>? _relativeSegments;
-        private readonly bool _relativeNode;
+        // Non-null only while something grays lanes out ("draw non-relatives gray",
+        // or a hovered ref label): the flag of each segment (parallel to _segments),
+        // the node's own flag, and the gray brush to use for the ones that are false —
+        // the port's counterpart of upstream GraphRenderer.GetBrushForLaneInfo(…,
+        // isRelative, DrawNonRelativesGray, isHoverHighlighted).
+        //
+        // The flags are MUTABLE (see SetRelatives) and the rest is not: hovering a ref
+        // label changes only which lanes are gray, and rebuilding the row for that
+        // would also rebuild the label under the pointer — a PointerExited/Entered
+        // pair on a fresh control, i.e. a hover that re-triggers itself.
+        private IReadOnlyList<bool>? _relativeSegments;
+        private bool _relativeNode;
         private readonly IBrush? _nonRelativeBrush;
         private bool _rowSelected;
 
@@ -8234,9 +8377,11 @@ public sealed class RevisionGridView : UserControl
             bool relativeNode = true,
             IBrush? nonRelativeBrush = null,
             bool squareNode = false,
-            bool headNode = false)
+            bool headNode = false,
+            int displayIndex = -1)
         {
             _segments = segments;
+            DisplayIndex = displayIndex;
             _nodeLane = nodeLane;
             _squareNode = squareNode;
             _headNode = headNode;
@@ -8255,6 +8400,32 @@ public sealed class RevisionGridView : UserControl
             // paint outside the row's bounds and smear into neighbours / the
             // panel below. Clip strictly to our own bounds.
             ClipToBounds = true;
+        }
+
+        /// <summary>
+        ///  The index into the grid's display rows this cell was built for, which is
+        ///  what the per-row relative flags are keyed by. -1 when unknown.
+        /// </summary>
+        public int DisplayIndex { get; }
+
+        /// <summary>
+        ///  Replaces the relative flags and repaints this cell only — no re-template,
+        ///  no layout. A no-op when nothing changed, so sweeping every realized row on
+        ///  each hover costs nothing for the rows whose lanes keep their colour.
+        /// </summary>
+        public void SetRelatives(IReadOnlyList<bool>? relativeSegments, bool relativeNode)
+        {
+            if (_relativeNode == relativeNode
+                && (ReferenceEquals(_relativeSegments, relativeSegments)
+                    || (_relativeSegments is not null && relativeSegments is not null
+                        && _relativeSegments.SequenceEqual(relativeSegments))))
+            {
+                return;
+            }
+
+            _relativeSegments = relativeSegments;
+            _relativeNode = relativeNode;
+            InvalidateVisual();
         }
 
         /// <summary>

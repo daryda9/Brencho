@@ -51,6 +51,7 @@ HARNESSES=(
     "command-palette|CommandPaletteRegression.Harness|300|"
     "syntax-tokenize|SyntaxTokenizeRegression.Harness|120|"
     "merge-resolve|MergeResolveRegression.Harness|180|"
+    "graph-lanes|GraphLanesRegression.Harness|120|"
     "asset-names|AssetNamesRegression.Harness|60|$ROOT/App"
     "file-list|FileListRegression.Harness|60|$ROOT/App"
 )

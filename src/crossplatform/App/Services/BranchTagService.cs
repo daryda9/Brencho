@@ -28,6 +28,14 @@ public sealed record BranchTagRow(
     /// </summary>
     public string Remote { get; init; } = string.Empty;
 
+    /// <summary>
+    ///  For a local branch with a configured upstream, the short name of the
+    ///  remote-tracking branch it tracks (<c>origin/main</c>), built from
+    ///  <c>IGitRef.TrackingRemote</c> and <c>IGitRef.MergeWith</c> — the same two
+    ///  facts <c>IGitRef.IsTrackingRemote</c> compares. Empty otherwise.
+    /// </summary>
+    public string Upstream { get; init; } = string.Empty;
+
     public string Display
     {
         get
@@ -266,11 +274,24 @@ public sealed class BranchTagService
                 branches.Add(new BranchTagRow(gitRef.Name, IsTag: false, gitRef.IsRemote, isCurrent, oid)
                 {
                     Remote = gitRef.IsRemote ? gitRef.Remote : string.Empty,
+                    Upstream = gitRef.IsHead ? UpstreamOf(gitRef) : string.Empty,
                 });
             }
         }
 
         return new BranchTagListing(branches, tags);
+    }
+
+    // branch.<name>.remote + branch.<name>.merge as "remote/branch". The core reads
+    // both from the effective config it caches per module (one `git config` for the
+    // whole listing, not one per branch).
+    private static string UpstreamOf(IGitRef gitRef)
+    {
+        string remote = gitRef.TrackingRemote;
+        string merge = gitRef.MergeWith;
+        return remote.Length == 0 || merge.Length == 0 ? string.Empty
+            : remote == "." ? merge // tracks another LOCAL branch
+            : $"{remote}/{merge}";
     }
 
     /// <summary>
